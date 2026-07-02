@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Journal Layout Planner</title>
+<style>
+  :root{
+    --bg:#faf5ee; --card:#fffdf9; --paper:#fffefa;
+    --ink:#4a3f35; --ink-soft:#8a7a68; --line:#e9dfd2;
+    --accent:#c96f4a; --accent-soft:#f3e2d6;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
+  body{padding:16px 14px calc(24px + env(safe-area-inset-bottom));
+    max-width:560px; margin:0 auto;}
+  header h1{font-size:1.25rem; font-weight:700; letter-spacing:.01em;}
+  header p{font-size:.8rem; color:var(--ink-soft); margin-top:2px;}
+  .controls{display:flex; gap:8px; margin:14px 0 6px; align-items:center;}
+  select{flex:1; min-width:0; appearance:none; -webkit-appearance:none;
+    background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:10px 12px; font-size:.85rem; color:var(--ink);}
+  button{background:var(--accent); color:#fff; border:none; border-radius:10px;
+    padding:10px 16px; font-size:.85rem; font-weight:600; cursor:pointer;
+    min-height:44px;}
+  button:active{opacity:.85;}
+  .warn{display:none; background:#fbeee2; border:1px solid #ecd3bd; color:#8a5a34;
+    border-radius:10px; padding:8px 12px; font-size:.78rem; margin:6px 0;}
+  .warn.show{display:block;}
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:10px;}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:8px; box-shadow:0 1px 3px rgba(120,90,60,.06);}
+  .thumb{display:flex; align-items:center; justify-content:center;}
+  .thumb svg{width:100%; height:auto; display:block; border-radius:6px;}
+  .cap{font-size:.72rem; color:var(--ink-soft); text-align:center; margin-top:6px;}
+  .cap b{color:var(--ink); font-weight:600;}
+  footer{margin-top:18px; font-size:.72rem; color:var(--ink-soft); text-align:center;}
+</style>
+</head>
+<body>
+<header>
+  <h1>Journal Layout Planner</h1>
+  <p>Phase 1 preview — layout engine · four suggestions</p>
+</header>
+
+<div class="controls">
+  <select id="scenario"></select>
+  <button id="regen">Regenerate</button>
+</div>
+<div class="warn" id="warn"></div>
+<div class="grid" id="grid"></div>
+
+<footer>Static engine preview. Editor and export come in later phases.</footer>
+
+<script>
+'use strict';
+/* =====================================================================
+   1. GEOMETRY MODEL — all units are centimeters, origin top-left
+   ===================================================================== */
+const NOTEBOOKS = {
+  A5:{w:14.8, h:21.0}, B6:{w:12.5, h:17.6}, A6:{w:10.5, h:14.8}, TN:{w:11.0, h:21.0}
+};
+const MARGIN = 0.5;          // outer margin, all edges (PRD 5.1)
+const GUTTER_HALF = 0.8;     // dead zone each side of spine (PRD 5.3)
+const DENSITY = {airy:0.45, balanced:0.65, packed:0.85};
+const SCALE_MIN = 0.6, SCALE_MAX = 1.3;   // soft element scaling (PRD 5.4)
+const WASHI_W = 1.5;
+
+function makePage(sc){
+  let {w,h} = NOTEBOOKS[sc.size];
+  if(sc.orientation === 'horizontal'){ const t=w; w=h; h=t; }
+  let spine = null;
+  if(sc.mode === 'spread'){
+    if(sc.orientation === 'vertical'){ w *= 2; spine = {axis:'v', pos:w/2}; }
+    else                             { h *= 2; spine = {axis:'h', pos:h/2}; }
+  }
+  const usable = {x:MARGIN, y:MARGIN, w:w-2*MARGIN, h:h-2*MARGIN};
+  let gutter = null;
+  if(spine){
+    gutter = spine.axis==='v'
+      ? {x:spine.pos-GUTTER_HALF, y:0, w:2*GUTTER_HALF, h:h}
+      : {x:0, y:spine.pos-GUTTER_HALF, w:w, h:2*GUTTER_HALF};
+  }
+  return {w, h, spine, gutter, usable};
+}
+
+/* ---- element type table (PRD 6) ---- */
+const EL = {
+  photoL:   {label:'Landscape photo', w:10.0, h:7.5,  kind:'photo'},
+  photoP:   {label:'Portrait photo',  w:7.5,  h:10.0, kind:'photo'},
+  sketchS:  {label:'Small sketch',    w:4.0,  h:4.0,  kind:'sketch'},
+  sketchL:  {label:'Large sketch',    w:10.0, h:6.0,  kind:'sketch'},
+  washi:    {label:'Washi tape',      w:6.0,  h:WASHI_W, kind:'washi'},
+  headline: {label:'Headline',        w:0,    h:1.5,  kind:'text'},
+  paragraph:{label:'Paragraph',       w:0,    h:0,    kind:'text'},
+  emoji:    {label:'Emoji',           w:1.4,  h:1.4,  kind:'emoji'}
+};
+const PARA_LH = {8:0.35, 10:0.42, 12:0.50};  // line heights in cm (PRD 6, #7)
+
+/* ---- rect helpers ---- */
+function bbox(el){
+  if(!el.rot) return {x:el.x, y:el.y, w:el.w, h:el.h};
+  const r = el.rot*Math.PI/180, cx = el.x+el.w/2, cy = el.y+el.h/2;
+  const c = Math.abs(Math.cos(r)), s = Math.abs(Math.sin(r));
+  const w = el.w*c + el.h*s, h = el.w*s + el.h*c;
+  return {x:cx-w/2, y:cy-h/2, w, h};
+}
+function overlapRect(a,b){
+  const x = Math.max(a.x,b.x), y = Math.max(a.y,b.y);
+  const X = Math.min(a.x+a.w, b.x+b.w), Y = Math.min(a.y+a.h, b.y+b.h);
+  return (X>x && Y>y) ? {x, y, w:X-x, h:Y-y} : null;
+}
+function contains(outer, inner){
+  return inner.x >= outer.x && inner.y >= outer.y &&
+         inner.x+inner.w <= outer.x+outer.w && inner.y+inner.h <= outer.y+outer.h;
+}
+function centerOf(r){ return {x:r.x+r.w/2, y:r.y+r.h/2}; }
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+function clampToUsable(el, page){
+  const u = page.usable, b = bbox(el);
+  if(b.w >= u.w) el.x += (u.x+u.w/2) - (b.x+b.w/2);
+  else if(b.x < u.x) el.x += u.x - b.x;
+  else if(b.x+b.w > u.x+u.w) el.x -= (b.x+b.w) - (u.x+u.w);
+  const b2 = bbox(el);
+  if(b2.h >= u.h) el.y += (u.y+u.h/2) - (b2.y+b2.h/2);
+  else if(b2.y < u.y) el.y += u.y - b2.y;
+  else if(b2.y+b2.h > u.y+u.h) el.y -= (b2.y+b2.h) - (u.y+u.h);
+}
+
+/* Gutter rules (PRD 5.3): text/emoji/small sketch stay fully out of the dead
+   zone; photos and large sketches may cross the spine but keep their center
+   (focal area) out of it; washi is free to cross. */
+function gutterFix(el, page){
+  const g = page.gutter;
+  if(!g || el.kind === 'washi') return;
+  const strict = el.kind==='text' || el.kind==='emoji' || el.t==='sketchS';
+  const b = bbox(el), c = centerOf(b), axis = page.spine.axis, spine = page.spine.pos;
+  if(strict){
+    if(!overlapRect(b,g)) return;
+    if(axis==='v') el.x += (c.x < spine) ? (g.x - (b.x+b.w)) : ((g.x+g.w) - b.x);
+    else           el.y += (c.y < spine) ? (g.y - (b.y+b.h)) : ((g.y+g.h) - b.y);
+  } else {
+    const inBand = (axis==='v') ? (c.x > g.x && c.x < g.x+g.w)
+                                : (c.y > g.y && c.y < g.y+g.h);
+    if(!inBand) return;
+    if(axis==='v') el.x += (c.x <= spine) ? (g.x - c.x) : ((g.x+g.w) - c.x);
+    else           el.y += (c.y <= spine) ? (g.y - c.y) : ((g.y+g.h) - c.y);
+  }
+  clampToUsable(el, page);
+}
+
+/* =====================================================================
+   2. SEEDED RANDOMNESS
+   ===================================================================== */
+function mulberry32(seed){
+  return function(){
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function pick(rng, arr){ return arr[Math.floor(rng()*arr.length)]; }
+function rrange(rng,a,b){ return a + rng()*(b-a); }
+function shuffle(rng, arr){
+  const a = arr.slice();
+  for(let i=a.length-1; i>0; i--){
+    const j = Math.floor(rng()*(i+1)); const t=a[i]; a[i]=a[j]; a[j]=t;
+  }
+  return a;
+}
+const usedSeeds = new Set();
+function newSeed(){
+  let s;
+  do { s = Math.floor(Math.random()*0xFFFFFFFF); } while(usedSeeds.has(s));
+  usedSeeds.add(s);
+  return s;
+}
+
+/* =====================================================================
+   3. ELEMENT INSTANTIATION + DENSITY SCALING
+   ===================================================================== */
+const WASHI_COLORS = [
+  ['#e8a0a0','#f6d3d3'], ['#9dbfb2','#d6e8e1'], ['#e2b95c','#f6e6bd'],
+  ['#9fb4d8','#dce4f2'], ['#cf9cbd','#eddbe7'], ['#c9a06b','#ecd9bd']
+];
+const PHOTO_MOTIFS = ['landscape','city','abstract'];
+
+function headlineSize(el){
+  el.h = 1.5 * el.s;
+  el.w = Math.max(2.5, el.text.length * 0.36 * el.h);
+}
+function setParagraphWidth(el, width){
+  el.w = Math.max(2.5, width);
+  const lh = PARA_LH[el.size] || PARA_LH[10];
+  const charW = 0.32 * lh;
+  const cpl = Math.max(8, Math.floor(el.w / charW));
+  const words = el.text.split(/\s+/);
+  const lines = [];
+  let line = '';
+  for(const wd of words){
+    const cand = line ? line + ' ' + wd : wd;
+    if(cand.length > cpl && line){ lines.push(line); line = wd; }
+    else line = cand;
+  }
+  if(line) lines.push(line);
+  el.lines = lines; el.lh = lh;
+  el.h = lines.length * lh + 0.2;
+}
+/* rescale relative to type default, clamped to 60–130% (PRD 5.4) */
+function scaleEl(el, f){
+  if(el.t === 'paragraph' || el.kind === 'washi') return;
+  el.s = clamp(el.s * f, SCALE_MIN, SCALE_MAX);
+  if(el.t === 'headline'){ headlineSize(el); return; }
+  el.w = EL[el.t].w * el.s;
+  el.h = EL[el.t].h * el.s;
+}
+
+function prepareElements(sc, page, rng){
+  const u = page.usable;
+  const els = sc.elements.map((e,i)=>{
+    const d = EL[e.t];
+    const el = {id:i, t:e.t, kind:d.kind, w:d.w, h:d.h, x:0, y:0, rot:0, z:10,
+                s:1, text:e.text||'', char:e.char||'✿', size:e.size||10,
+                placed:false, role:null, attach:null};
+    if(e.t==='headline') headlineSize(el);
+    if(e.t==='paragraph') setParagraphWidth(el, Math.min(8, u.w*0.65));
+    if(d.kind==='photo'){
+      el.motif = pick(rng, PHOTO_MOTIFS);
+    }
+    if(d.kind==='washi'){
+      const c = pick(rng, WASHI_COLORS);
+      el.colors = c; el.pattern = pick(rng, ['stripes','dots','plain']);
+    }
+    return el;
+  });
+  /* density scaling: solve a global scale for photos/sketches/headline so
+     total coverage approaches the density target */
+  const target = DENSITY[sc.density] * u.w * u.h;
+  let fixed = 0, scalable = 0;
+  for(const el of els){
+    const a = el.w*el.h;
+    if(el.kind==='photo' || el.kind==='sketch' || el.t==='headline') scalable += a;
+    else fixed += a;
+  }
+  if(scalable > 0){
+    /* density is a ceiling: shrink firmly to get under it, upscale only mildly */
+    const f = clamp(Math.sqrt(Math.max(0.05, target - fixed) / scalable), SCALE_MIN, 1.1);
+    for(const el of els) scaleEl(el, f);
+  }
+  return els;
+}
+
+/* feasibility check (PRD 5.4): can everything fit even at minimum scale? */
+function feasibility(sc, page){
+  const u = page.usable;
+  let minArea = 0;
+  for(const e of sc.elements){
+    const d = EL[e.t];
+    if(d.kind==='photo' || d.kind==='sketch') minArea += d.w*d.h*SCALE_MIN*SCALE_MIN;
+    else if(d.kind==='washi') minArea += 5*WASHI_W;
+    else if(e.t==='headline') minArea += 6*1.5*SCALE_MIN;
+    else if(e.t==='paragraph') minArea += 8;
+    else minArea += d.w*d.h;
+  }
+  const maxCover = Math.min(0.9, DENSITY[sc.density] + 0.15);
+  return minArea <= u.w*u.h*maxCover;
+}
+
+/* =====================================================================
+   4. SHARED PLACEMENT TOOLKIT
+   ===================================================================== */
+const GRID_SNAP = 0.25;
+function snap(el){ el.x = Math.round(el.x/GRID_SNAP)*GRID_SNAP;
+                   el.y = Math.round(el.y/GRID_SNAP)*GRID_SNAP; }
+function placeCenter(el, cx, cy){ el.x = cx-el.w/2; el.y = cy-el.h/2; el.placed = true; }
+
+function byKind(els){
+  return {
+    visuals: els.filter(e=>e.kind==='photo'||e.kind==='sketch'),
+    texts:   els.filter(e=>e.kind==='text'),
+    washis:  els.filter(e=>e.kind==='washi'),
+    emojis:  els.filter(e=>e.kind==='emoji')
+  };
+}
+
+/* find an open spot for a w×h element, maximizing distance to placed items */
+function findSpot(els, page, w, h, rng, opts){
+  opts = opts || {};
+  const u = page.usable, tries = opts.tries || 40;
+  const placed = els.filter(e=>e.placed && e.kind!=='washi');
+  let best = null, bestScore = -1e9;
+  for(let i=0;i<tries;i++){
+    const x = u.x + rng()*Math.max(0.01, u.w-w);
+    const y = u.y + rng()*Math.max(0.01, u.h-h);
+    const r = {x,y,w,h};
+    if(page.gutter && opts.avoidGutter !== false && overlapRect(r, page.gutter)) continue;
+    let score = 1e9;
+    for(const p of placed){
+      const pb = bbox(p), pc = centerOf(pb), rc = centerOf(r);
+      const d = Math.hypot(pc.x-rc.x, pc.y-rc.y) - Math.max(pb.w,pb.h)/2;
+      score = Math.min(score, d);
+    }
+    if(opts.bias){
+      const rc = centerOf(r);
+      score -= Math.hypot(rc.x-opts.bias.x, rc.y-opts.bias.y)*0.6;
+    }
+    if(score > bestScore){ bestScore = score; best = {x,y}; }
+  }
+  return best || {x:u.x, y:u.y};
+}
+
+/* place el adjacent to target, trying 8 directions, least overlap wins */
+function placeAround(el, target, els, page, rng, preferAngles){
+  const u = page.usable, tb = bbox(target), tc = centerOf(tb);
+  const gap = 0.35;
+  const angles = (preferAngles || []).concat(shuffle(rng,[0,45,90,135,180,225,270,315]));
+  const placed = els.filter(e=>e.placed && e!==el && e.kind!=='washi');
+  let best = null, bestScore = -1e9;
+  for(const a of angles){
+    const rad = a*Math.PI/180, dx = Math.cos(rad), dy = Math.sin(rad);
+    const cx = tc.x + dx*((tb.w+el.w)/2 + gap);
+    const cy = tc.y + dy*((tb.h+el.h)/2 + gap);
+    const r = {x:cx-el.w/2, y:cy-el.h/2, w:el.w, h:el.h};
+    let score = rng()*0.3;
+    /* penalize overflow beyond usable area */
+    const ox = Math.max(0, u.x-r.x) + Math.max(0, r.x+r.w-(u.x+u.w));
+    const oy = Math.max(0, u.y-r.y) + Math.max(0, r.y+r.h-(u.y+u.h));
+    score -= (ox+oy)*8;
+    for(const p of placed){
+      const o = overlapRect(r, bbox(p));
+      if(o) score -= o.w*o.h*6;
+    }
+    if(page.gutter && (el.kind==='text'||el.kind==='emoji')){
+      const og = overlapRect(r, page.gutter);
+      if(og) score -= og.w*og.h*6;
+    }
+    if(score > bestScore){ bestScore = score; best = {cx, cy}; }
+  }
+  placeCenter(el, best.cx, best.cy);
+  clampToUsable(el, page);
+}
+
+/* push apart overlapping non-washi elements */
+function resolveOverlaps(els, page, allowFrac){
+  const items = els.filter(e=>e.placed && e.kind!=='washi');
+  for(let iter=0; iter<14; iter++){
+    let moved = false;
+    for(let i=0;i<items.length;i++) for(let j=i+1;j<items.length;j++){
+      const a = items[i], b = items[j];
+      const ab = bbox(a), bb = bbox(b);
+      const o = overlapRect(ab, bb);
+      if(!o) continue;
+      if(allowFrac){
+        const frac = o.w*o.h / Math.min(ab.w*ab.h, bb.w*bb.h);
+        if(frac < allowFrac) continue;
+      }
+      const ac = centerOf(ab), bc = centerOf(bb);
+      if(o.w < o.h){
+        const push = o.w/2 + 0.08, dir = ac.x <= bc.x ? -1 : 1;
+        a.x += dir*push; b.x -= dir*push;
+      } else {
+        const push = o.h/2 + 0.08, dir = ac.y <= bc.y ? -1 : 1;
+        a.y += dir*push; b.y -= dir*push;
+      }
+      clampToUsable(a, page); clampToUsable(b, page);
+      moved = true;
+    }
+    if(!moved) break;
+  }
+}
+
+/* ---- washi role placers (PRD 6.5) ---- */
+function washiBorder(el, page, rng){
+  el.role = 'border';
+  const u = page.usable;
+  const side = pick(rng, ['top','bottom','left','right']);
+  if(side==='top' || side==='bottom'){
+    el.w = u.w*rrange(rng,0.9,1.0); el.h = WASHI_W;
+    el.x = u.x + (u.w-el.w)/2;
+    el.y = side==='top' ? u.y + 0.05 : u.y + u.h - el.h - 0.05;
+  } else {
+    el.w = WASHI_W; el.h = u.h*rrange(rng,0.9,1.0);
+    el.y = u.y + (u.h-el.h)/2;
+    el.x = side==='left' ? u.x + 0.05 : u.x + u.w - el.w - 0.05;
+  }
+  el.rot = rrange(rng,-1,1);
+  el.z = 6; el.placed = true;
+}
+function washiDividerH(el, page, y, rng){
+  el.role = 'divider';
+  const u = page.usable;
+  el.w = u.w*rrange(rng,0.85,1.0); el.h = WASHI_W;
+  el.x = u.x + (u.w-el.w)/2; el.y = y - el.h/2;
+  el.rot = rrange(rng,-1,1); el.z = 25; el.placed = true;
+  clampToUsable(el, page);
+}
+function washiDividerV(el, page, x, rng){
+  el.role = 'divider';
+  const u = page.usable;
+  el.w = WASHI_W; el.h = u.h*rrange(rng,0.85,1.0);
+  el.x = x - el.w/2; el.y = u.y + (u.h-el.h)/2;
+  el.rot = rrange(rng,-1,1); el.z = 25; el.placed = true;
+  clampToUsable(el, page);
+}
+function washiDiagonal(el, page, rng){
+  el.role = 'diagonal';
+  const u = page.usable;
+  el.w = Math.min(u.w,u.h)*rrange(rng,0.55,0.85); el.h = WASHI_W;
+  const sign = rng()<0.5 ? 1 : -1;
+  el.rot = sign*rrange(rng,8,30);
+  /* may deliberately cross the spine (PRD 5.3) */
+  const cx = page.gutter && rng()<0.55 && page.spine.axis==='v'
+    ? page.spine.pos + rrange(rng,-1,1)
+    : u.x + rrange(rng,0.3,0.7)*u.w;
+  const cy = page.gutter && page.spine.axis==='h' && rng()<0.55
+    ? page.spine.pos + rrange(rng,-1,1)
+    : u.y + rrange(rng,0.25,0.75)*u.h;
+  placeCenter(el, cx, cy);
+  el.z = 45;
+  clampToUsable(el, page);
+}
+function washiAnchor(el, photo, corner, rng){
+  el.role = 'anchor';
+  el.attach = {id:photo.id, corner};
+  el.w = rrange(rng,2.5,3.4); el.h = WASHI_W*0.85;
+  el.rot = (corner===0 || corner===3 ? -45 : 45) + rrange(rng,-12,12);
+  el.z = 60; el.placed = true;
+}
+/* anchors follow their photo; run after all other adjustments */
+function settleAnchors(els, page){
+  for(const el of els){
+    if(!el.attach) continue;
+    const target = els.find(e=>e.id===el.attach.id);
+    if(!target){ el.placed = false; continue; }
+    const b = {x:target.x, y:target.y, w:target.w, h:target.h};
+    const pts = [
+      {x:b.x, y:b.y}, {x:b.x+b.w, y:b.y},
+      {x:b.x+b.w, y:b.y+b.h}, {x:b.x, y:b.y+b.h}
+    ];
+    const p = pts[el.attach.corner % 4];
+    placeCenter(el, p.x, p.y);
+    clampToUsable(el, page);
+  }
+}
+
+/* =====================================================================
+   5. ARCHETYPES (PRD 7.2) — parameterized placement strategies
+   ===================================================================== */
+const ARCHETYPES = [
+
+{ name:'Grid',
+  score(ctx){ return 1 + 0.12*ctx.counts.visuals; },
+  place(ctx){
+    const {els, page, rng} = ctx;
+    const u = page.usable;
+    const {visuals, texts, washis, emojis} = byKind(els);
+    const items = shuffle(rng, visuals.concat(texts));
+    const n = items.length;
+    let cols = clamp(Math.round(Math.sqrt(n * (u.w/u.h))), 1, Math.min(n,4));
+    if(n>2 && rng()<0.3) cols = clamp(cols + (rng()<0.5?-1:1), 1, Math.min(n,4));
+    const rows = Math.ceil(n/cols);
+    const gap = 0.4;
+    const cw = (u.w-(cols-1)*gap)/cols, ch = (u.h-(rows-1)*gap)/rows;
+    items.forEach((el,i)=>{
+      const c = i%cols, r = Math.floor(i/cols);
+      if(el.t==='paragraph') setParagraphWidth(el, cw-0.3);
+      const f = Math.min(1, (cw-0.25)/el.w, (ch-0.25)/el.h);
+      if(f < 1) scaleEl(el, f);
+      /* center last row if it isn't full */
+      const inRow = (r === rows-1) ? n - (rows-1)*cols : cols;
+      const rowW = inRow*cw + (inRow-1)*gap;
+      const x0 = u.x + (u.w-rowW)/2;
+      placeCenter(el, x0 + c*(cw+gap) + cw/2, u.y + r*(ch+gap) + ch/2);
+      snap(el);
+    });
+    washis.forEach((wa,i)=>{
+      if(i===0) washiBorder(wa, page, rng);
+      else if(rows>1) washiDividerH(wa, page, u.y + Math.ceil(rows/2)*(ch+gap) - gap/2, rng);
+      else washiBorder(wa, page, rng);
+    });
+    emojis.forEach(em=>{
+      const p = findSpot(els, page, em.w, em.h, rng);
+      em.x = p.x; em.y = p.y; em.placed = true; em.z = 40;
+    });
+  }
+},
+
+{ name:'Focal hero',
+  score(ctx){ return ctx.counts.visuals >= 1 ? 1.3 : 0; },
+  place(ctx){
+    const {els, page, rng} = ctx;
+    const u = page.usable;
+    const {visuals, texts, washis, emojis} = byKind(els);
+    const sorted = visuals.slice().sort((a,b)=>b.w*b.h - a.w*a.h);
+    const focal = sorted[0];
+    scaleEl(focal, rrange(rng,1.12,1.28));
+    const gx = u.x + u.w*pick(rng,[0.382,0.618]);
+    const gy = u.y + u.h*pick(rng,[0.382,0.618]);
+    placeCenter(focal, gx, gy);
+    clampToUsable(focal, page);
+    focal.z = 10;
+    const supports = sorted.slice(1).concat(texts);
+    for(const el of supports){
+      if(el.t==='paragraph') setParagraphWidth(el, Math.min(el.w, u.w*0.42));
+      const prefer = el.t==='headline' ? [270,90] : [];
+      placeAround(el, focal, els, page, rng, prefer);
+      el.z = el.kind==='text' ? 30 : 12;
+      snap(el);
+    }
+    washis.forEach((wa,i)=>{
+      if(i===0) washiAnchor(wa, focal, Math.floor(rng()*4), rng);
+      else if(rng()<0.5) washiDiagonal(wa, page, rng);
+      else washiBorder(wa, page, rng);
+    });
+    emojis.forEach(em=>{
+      const p = findSpot(els, page, em.w, em.h, rng);
+      em.x = p.x; em.y = p.y; em.placed = true; em.z = 40;
+    });
+  }
+},
+
+{ name:'Diagonal flow',
+  score(ctx){
+    return 1 + (ctx.page.spine ? 0.3 : 0) + (ctx.counts.items>=4 ? 0.2 : 0);
+  },
+  place(ctx){
+    const {els, page, rng} = ctx;
+    const u = page.usable;
+    const {visuals, texts, washis, emojis} = byKind(els);
+    const headline = texts.find(e=>e.t==='headline');
+    const rest = shuffle(rng, visuals.concat(texts.filter(e=>e!==headline)));
+    const items = headline ? [headline].concat(rest) : rest;
+    const leftToRight = rng() < 0.5;
+    const n = items.length;
+    items.forEach((el,i)=>{
+      if(el.t==='paragraph') setParagraphWidth(el, Math.min(el.w, u.w*0.45));
+      const t = n===1 ? 0.5 : i/(n-1);
+      const tx = leftToRight ? t : 1-t;
+      const cx = u.x + (0.12 + 0.76*tx)*u.w + rrange(rng,-0.05,0.05)*u.w;
+      const cy = u.y + (0.10 + 0.80*t)*u.h + rrange(rng,-0.04,0.04)*u.h;
+      placeCenter(el, cx, cy);
+      if(el.kind!=='text') el.rot = rrange(rng,-3,3);
+      el.z = el.kind==='text' ? 30 : 10+i;
+      clampToUsable(el, page);
+    });
+    resolveOverlaps(els, page);
+    washis.forEach((wa,i)=>{
+      if(i===0){
+        washiDiagonal(wa, page, rng);
+        const flowAngle = Math.atan2(u.h, (leftToRight?1:-1)*u.w)*180/Math.PI;
+        wa.rot = flowAngle + rrange(rng,-8,8);
+      } else washiBorder(wa, page, rng);
+    });
+    emojis.forEach(em=>{
+      /* fill the two corners the flow leaves empty */
+      const cornerX = leftToRight ? [u.x+u.w-3, u.x+1] : [u.x+1, u.x+u.w-3];
+      const bias = rng()<0.5 ? {x:cornerX[0]+1, y:u.y+2} : {x:cornerX[1]+1, y:u.y+u.h-2};
+      const p = findSpot(els, page, em.w, em.h, rng, {bias});
+      em.x = p.x; em.y = p.y; em.placed = true; em.z = 40;
+    });
+  }
+},
+
+{ name:'Columns',
+  score(ctx){
+    if(ctx.counts.paragraphs === 0) return 0;
+    return 1 + (ctx.page.usable.w >= 11 ? 0.3 : -0.4);
+  },
+  place(ctx){
+    const {els, page, rng} = ctx;
+    const u = page.usable;
+    const {visuals, texts, washis, emojis} = byKind(els);
+    const three = u.w > 15 && visuals.length >= 2 && rng() < 0.5;
+    const ncols = three ? 3 : 2;
+    const gap = 0.6;
+    let widths;
+    if(ncols === 2){
+      const r = pick(rng, [0.5, 0.42, 0.58]);
+      widths = [u.w*r - gap/2, u.w*(1-r) - gap/2];
+    } else {
+      const cw = (u.w - 2*gap)/3; widths = [cw,cw,cw];
+    }
+    const xs = [u.x];
+    for(let i=1;i<ncols;i++) xs.push(xs[i-1] + widths[i-1] + gap);
+    const textCol = Math.floor(rng()*ncols);
+    const colItems = Array.from({length:ncols}, ()=>[]);
+    colItems[textCol] = texts.slice();
+    let vi = 0;
+    for(const v of visuals){
+      let c = vi % ncols;
+      if(c === textCol) c = (c+1) % ncols;
+      colItems[c].push(v); vi++;
+    }
+    colItems.forEach((items, c)=>{
+      if(!items.length) return;
+      const colW = widths[c];
+      let totalH = 0;
+      for(const el of items){
+        if(el.t==='paragraph') setParagraphWidth(el, colW-0.2);
+        else { const f = Math.min(1, (colW-0.2)/el.w); if(f<1) scaleEl(el, f); }
+        totalH += el.h;
+      }
+      const igap = clamp((u.h-totalH)/(items.length+1), 0.3, 2.2);
+      let y = u.y + Math.max(0.2, (u.h - totalH - igap*(items.length-1))/2);
+      for(const el of items){
+        placeCenter(el, xs[c] + colW/2, y + el.h/2);
+        el.z = el.kind==='text' ? 30 : 10;
+        snap(el);
+        y += el.h + igap;
+      }
+    });
+    washis.forEach((wa,i)=>{
+      if(i===0) washiDividerV(wa, page, xs[1] - gap/2, rng);
+      else washiBorder(wa, page, rng);
+    });
+    emojis.forEach(em=>{
+      const p = findSpot(els, page, em.w, em.h, rng);
+      em.x = p.x; em.y = p.y; em.placed = true; em.z = 40;
+    });
+  }
+},
+
+{ name:'Bands',
+  score(ctx){
+    return 1 + (ctx.sc.size==='TN' ? 0.4 : 0) +
+           (ctx.sc.orientation==='horizontal' ? 0.4 : 0);
+  },
+  place(ctx){
+    const {els, page, rng} = ctx;
+    const u = page.usable;
+    const {visuals, texts, washis, emojis} = byKind(els);
+    for(const el of texts) if(el.t==='paragraph') setParagraphWidth(el, u.w*0.8);
+    const bands = [];
+    if(visuals.length) bands.push({type:'vis', items:visuals});
+    if(texts.length)   bands.push({type:'text', items:texts});
+    if(emojis.length)  bands.push({type:'deco', items:emojis});
+    if(bands.length > 1 && rng() < 0.5){
+      const b = shuffle(rng, bands);
+      /* keep decoration off the top most of the time */
+      if(b[0].type==='deco' && rng()<0.7){ b.push(b.shift()); }
+      bands.length = 0; bands.push(...b);
+    }
+    const measure = ()=>bands.map(b=>{
+      if(b.type==='vis') return Math.max(...b.items.map(e=>e.h)) + 0.3;
+      if(b.type==='text') return b.items.reduce((s,e)=>s+e.h, 0) + 0.4;
+      return Math.max(...b.items.map(e=>e.h)) + 0.3;
+    });
+    let hs = measure();
+    let total = hs.reduce((a,b)=>a+b, 0);
+    if(total > u.h){
+      const f = clamp((u.h - (total - hs[bands.findIndex(b=>b.type==='vis')] )) /
+                      hs[bands.findIndex(b=>b.type==='vis')], SCALE_MIN, 1);
+      for(const v of visuals) scaleEl(v, f);
+      hs = measure(); total = hs.reduce((a,b)=>a+b, 0);
+    }
+    const pad = Math.max(0.2, (u.h-total)/(bands.length+1));
+    let y = u.y + pad;
+    const boundaries = [];
+    bands.forEach((band,bi)=>{
+      const bh = hs[bi];
+      if(band.type==='vis'){
+        let tw = band.items.reduce((s,e)=>s+e.w, 0) + (band.items.length-1)*0.5;
+        if(tw > u.w){
+          const f = (u.w - (band.items.length-1)*0.5)/(tw-(band.items.length-1)*0.5);
+          for(const v of band.items) scaleEl(v, f);
+          tw = band.items.reduce((s,e)=>s+e.w, 0) + (band.items.length-1)*0.5;
+        }
+        let x = u.x + (u.w-tw)/2;
+        for(const el of band.items){
+          el.x = x; el.y = y + (bh-0.3-el.h)/2; el.placed = true; el.z = 10;
+          snap(el);
+          x += el.w + 0.5;
+        }
+      } else if(band.type==='text'){
+        let ty = y + 0.2;
+        for(const el of band.items){
+          placeCenter(el, u.x+u.w/2, ty + el.h/2);
+          el.z = 30; snap(el);
+          ty += el.h + 0.2;
+        }
+      } else {
+        const step = u.w/(band.items.length+1);
+        band.items.forEach((em,i)=>{
+          placeCenter(em, u.x + step*(i+1), y + bh/2);
+          em.z = 40;
+        });
+      }
+      y += bh + pad;
+      if(bi < bands.length-1) boundaries.push(y - pad/2);
+    });
+    washis.forEach((wa,i)=>{
+      if(i < boundaries.length) washiDividerH(wa, page, boundaries[i], rng);
+      else washiBorder(wa, page, rng);
+    });
+  }
+},
+
+{ name:'Scatter collage',
+  score(ctx){
+    return (ctx.counts.visuals + ctx.counts.emojis) >= 3 ? 1.2 : 0.4;
+  },
+  place(ctx){
+    const {els, page, rng} = ctx;
+    const u = page.usable;
+    const {visuals, texts, washis, emojis} = byKind(els);
+    const items = shuffle(rng, visuals.concat(texts, emojis));
+    for(const el of items){
+      if(el.t==='paragraph') setParagraphWidth(el, Math.min(el.w, u.w*0.5));
+      const p = findSpot(els, page, el.w, el.h, rng,
+                         {tries:50, avoidGutter: el.kind==='text'||el.kind==='emoji'});
+      el.x = p.x; el.y = p.y; el.placed = true;
+      if(el.kind==='photo'||el.kind==='sketch') el.rot = rrange(rng,2,8)*(rng()<0.5?-1:1);
+      else if(el.kind==='text') el.rot = rrange(rng,-2,2);
+      el.z = el.kind==='emoji' ? 40 : (el.kind==='text' ? 30 : 10 + Math.floor(rng()*8));
+    }
+    resolveOverlaps(els, page, 0.3);
+    const photos = els.filter(e=>e.kind==='photo');
+    washis.forEach((wa,i)=>{
+      if(photos.length){
+        const target = photos[i % photos.length];
+        washiAnchor(wa, target, Math.floor(rng()*4), rng);
+      } else washiDiagonal(wa, page, rng);
+    });
+  }
+}
+];
+
+/* =====================================================================
+   6. GENERATION CYCLE (PRD 7.1, 7.3)
+   ===================================================================== */
+function scenarioCounts(sc){
+  let visuals=0, paragraphs=0, emojis=0, items=0;
+  for(const e of sc.elements){
+    const k = EL[e.t].kind;
+    if(k==='photo'||k==='sketch') visuals++;
+    if(e.t==='paragraph') paragraphs++;
+    if(k==='emoji') emojis++;
+    if(k!=='washi') items++;
+  }
+  return {visuals, paragraphs, emojis, items};
+}
+
+function pickArchetypes(sc, page, rng){
+  const counts = scenarioCounts(sc);
+  const ctx = {sc, page, counts};
+  let pool = ARCHETYPES.map(a=>({a, w:a.score(ctx)})).filter(e=>e.w > 0);
+  const picked = [];
+  while(picked.length < 4 && pool.length){
+    const total = pool.reduce((s,e)=>s+e.w, 0);
+    let r = rng()*total;
+    let idx = 0;
+    for(let i=0;i<pool.length;i++){ r -= pool[i].w; if(r<=0){ idx=i; break; } }
+    picked.push(pool[idx].a);
+    pool.splice(idx,1);
+  }
+  return picked;
+}
+
+function generateSuggestions(sc){
+  const page = makePage(sc);
+  const rngPick = mulberry32(newSeed());
+  const archetypes = pickArchetypes(sc, page, rngPick);
+  const counts = scenarioCounts(sc);
+  return archetypes.map(arch=>{
+    const seed = newSeed();
+    const rng = mulberry32(seed);
+    const els = prepareElements(sc, page, rng);
+    arch.place({sc, page, els, rng, counts});
+    /* validation pass: margins, overlaps already handled per archetype,
+       then gutter rules, then anchors follow photos */
+    for(const el of els){
+      if(!el.placed){   /* safety net: anything an archetype missed */
+        const p = findSpot(els, page, el.w, el.h, rng);
+        el.x = p.x; el.y = p.y; el.placed = true;
+      }
+      /* outer margin is a hard constraint (PRD 5.1) and wins over the
+         soft 60% scale floor: force-fit anything larger than the usable area */
+      const b = bbox(el);
+      const f = Math.min(1, page.usable.w/b.w, page.usable.h/b.h);
+      if(f < 1){
+        el.w *= f; el.h *= f;
+        if(el.t==='paragraph') setParagraphWidth(el, el.w);
+      }
+      clampToUsable(el, page);
+    }
+    for(const el of els) gutterFix(el, page);
+    /* no element fully hidden behind another (PRD 7.3) */
+    for(const el of els){
+      if(el.kind==='washi') continue;
+      const b = bbox(el);
+      for(const other of els){
+        if(other===el || other.kind==='washi' || other.z <= el.z) continue;
+        if(contains(bbox(other), b)){ el.x += 1.2; el.y += 0.9; clampToUsable(el, page); }
+      }
+    }
+    settleAnchors(els, page);
+    return {arch:arch.name, seed, els, page};
+  });
+}
+
+/* =====================================================================
+   7. RENDERING — SVG thumbnails, 10 viewBox units per cm
+   ===================================================================== */
+const S = 10;
+const PHOTO_PALETTES = [
+  ['#f2c9a4','#d98e73'], ['#bcd2c5','#7fa896'], ['#e8d3a8','#c2a36b'],
+  ['#c8d4e8','#8fa3c4'], ['#e8c4c4','#c48f8f']
+];
+
+function esc(t){ return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function renderPhoto(el, uid){
+  const w = el.w*S, h = el.h*S;
+  const pal = PHOTO_PALETTES[el.id % PHOTO_PALETTES.length];
+  const gid = `g${uid}_${el.id}`;
+  const pad = Math.min(w,h)*0.055;
+  let motif = '';
+  if(el.motif==='landscape'){
+    motif = `<circle cx="72" cy="24" r="11" fill="#f6e3b0" opacity=".9"/>
+      <path d="M0 52 Q25 34 48 50 T100 46 V75 H0 Z" fill="#00000018"/>
+      <path d="M0 60 Q30 46 60 58 T100 54 V75 H0 Z" fill="#00000022"/>`;
+  } else if(el.motif==='city'){
+    motif = `<rect x="10" y="34" width="14" height="41" fill="#00000020"/>
+      <rect x="30" y="22" width="16" height="53" fill="#00000028"/>
+      <rect x="52" y="40" width="12" height="35" fill="#0000001c"/>
+      <rect x="70" y="28" width="17" height="47" fill="#00000024"/>
+      <circle cx="84" cy="14" r="7" fill="#fdf6e3" opacity=".85"/>`;
+  } else {
+    motif = `<circle cx="30" cy="30" r="22" fill="#ffffff30"/>
+      <circle cx="68" cy="48" r="30" fill="#00000012"/>
+      <path d="M0 70 Q50 50 100 68" stroke="#ffffff50" stroke-width="4" fill="none"/>`;
+  }
+  return `<rect width="${w}" height="${h}" fill="#fff" stroke="#d8cbb8" stroke-width="0.7"/>
+    <svg x="${pad}" y="${pad}" width="${w-2*pad}" height="${h-2*pad}"
+         viewBox="0 0 100 75" preserveAspectRatio="xMidYMid slice">
+      <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="${pal[0]}"/><stop offset="1" stop-color="${pal[1]}"/>
+      </linearGradient></defs>
+      <rect width="100" height="75" fill="url(#${gid})"/>${motif}
+    </svg>`;
+}
+
+function renderSketch(el){
+  const w = el.w*S, h = el.h*S;
+  const label = h > 25 ? `<text x="${w/2}" y="${h-6}" text-anchor="middle"
+    font-size="7" fill="#b9a88f" font-family="-apple-system,sans-serif">sketch</text>` : '';
+  return `<rect width="${w}" height="${h}" rx="3" fill="#fffef6"
+      stroke="#c9b895" stroke-width="0.9" stroke-dasharray="4 3"/>
+    <path d="M${w*0.2} ${h*0.5} q ${w*0.1} ${-h*0.25} ${w*0.2} 0 t ${w*0.2} 0 t ${w*0.2} 0"
+      stroke="#d5c5ab" stroke-width="1.4" fill="none" stroke-linecap="round"/>${label}`;
+}
+
+function renderWashi(el, uid){
+  const w = el.w*S, h = el.h*S;
+  const pid = `p${uid}_${el.id}`;
+  const [c1,c2] = el.colors;
+  let defs = '', fill = c1;
+  if(el.pattern==='stripes'){
+    defs = `<pattern id="${pid}" width="7" height="7" patternUnits="userSpaceOnUse"
+        patternTransform="rotate(45)">
+        <rect width="7" height="7" fill="${c1}"/><rect width="3.5" height="7" fill="${c2}"/>
+      </pattern>`;
+    fill = `url(#${pid})`;
+  } else if(el.pattern==='dots'){
+    defs = `<pattern id="${pid}" width="8" height="8" patternUnits="userSpaceOnUse">
+        <rect width="8" height="8" fill="${c1}"/><circle cx="4" cy="4" r="1.6" fill="${c2}"/>
+      </pattern>`;
+    fill = `url(#${pid})`;
+  }
+  return `<defs>${defs}</defs>
+    <rect width="${w}" height="${h}" fill="${fill}" opacity="0.72"/>
+    <rect x="0" y="0" width="${w}" height="${h}" fill="none"
+      stroke="#00000014" stroke-width="0.5"/>`;
+}
+
+function renderHeadline(el){
+  const w = el.w*S, h = el.h*S;
+  return `<text x="${w/2}" y="${h*0.72}" text-anchor="middle" font-size="${h*0.7}"
+    fill="#4a3f35" font-family="'Snell Roundhand','Marker Felt','Bradley Hand',cursive"
+    font-weight="600">${esc(el.text)}</text>`;
+}
+
+function renderParagraph(el){
+  const lh = el.lh*S, fs = lh*0.72;
+  let out = '';
+  el.lines.forEach((ln,i)=>{
+    out += `<text x="0" y="${(i+0.85)*lh}" font-size="${fs}" fill="#6b5d4f"
+      font-family="'Noteworthy','Marker Felt','Segoe Print',cursive">${esc(ln)}</text>`;
+  });
+  return out;
+}
+
+function renderEmoji(el){
+  const w = el.w*S, h = el.h*S;
+  return `<text x="${w/2}" y="${h*0.82}" text-anchor="middle"
+    font-size="${h*0.85}">${el.char}</text>`;
+}
+
+function renderSuggestion(sug, uid){
+  const page = sug.page;
+  const W = page.w*S, H = page.h*S;
+  let out = `<svg viewBox="-2 -2 ${W+4} ${H+4}" xmlns="http://www.w3.org/2000/svg">`;
+  out += `<rect x="0" y="0" width="${W}" height="${H}" fill="#fffefa"
+    stroke="#d8cbb8" stroke-width="1"/>`;
+  /* guides: margins + gutter hint (subtle, PRD 5.3) */
+  out += `<rect x="${MARGIN*S}" y="${MARGIN*S}" width="${W-2*MARGIN*S}" height="${H-2*MARGIN*S}"
+    fill="none" stroke="#eadfce" stroke-width="0.6" stroke-dasharray="3 4"/>`;
+  if(page.gutter){
+    const g = page.gutter;
+    out += `<rect x="${g.x*S}" y="${g.y*S}" width="${g.w*S}" height="${g.h*S}"
+      fill="#f3e9d9" opacity="0.55"/>`;
+    const sp = page.spine;
+    out += sp.axis==='v'
+      ? `<line x1="${sp.pos*S}" y1="0" x2="${sp.pos*S}" y2="${H}" stroke="#cbb896" stroke-width="0.8"/>`
+      : `<line x1="0" y1="${sp.pos*S}" x2="${W}" y2="${sp.pos*S}" stroke="#cbb896" stroke-width="0.8"/>`;
+  }
+  const sorted = sug.els.filter(e=>e.placed).slice().sort((a,b)=>a.z-b.z);
+  for(const el of sorted){
+    const cx = (el.x+el.w/2)*S, cy = (el.y+el.h/2)*S;
+    let inner = '';
+    if(el.kind==='photo') inner = renderPhoto(el, uid);
+    else if(el.kind==='sketch') inner = renderSketch(el);
+    else if(el.kind==='washi') inner = renderWashi(el, uid);
+    else if(el.t==='headline') inner = renderHeadline(el);
+    else if(el.t==='paragraph') inner = renderParagraph(el);
+    else if(el.kind==='emoji') inner = renderEmoji(el);
+    out += `<g transform="translate(${cx} ${cy}) rotate(${el.rot||0}) translate(${-el.w*S/2} ${-el.h*S/2})">${inner}</g>`;
+  }
+  out += '</svg>';
+  return out;
+}
+
+/* =====================================================================
+   8. SAMPLE SCENARIOS (hardcoded for Phase 1)
+   ===================================================================== */
+const SAMPLE_PARA = 'The robot wrote its poem twice, then filed it under improbable weather. We drank coffee on the pier while the tide quietly reorganized the afternoon, and nobody minded at all.';
+const SCENARIOS = [
+  { id:'tn-spread', label:'TN · vertical spread · Balanced',
+    size:'TN', orientation:'vertical', mode:'spread', density:'balanced',
+    elements:[
+      {t:'photoL'}, {t:'photoP'}, {t:'sketchS'},
+      {t:'headline', text:'Kyoto in the rain'},
+      {t:'paragraph', text:SAMPLE_PARA, size:10},
+      {t:'washi'}, {t:'washi'},
+      {t:'emoji', char:'🌧️'}, {t:'emoji', char:'🍜'}
+    ]},
+  { id:'a6-single', label:'A6 · vertical single · Balanced',
+    size:'A6', orientation:'vertical', mode:'single', density:'balanced',
+    elements:[
+      {t:'photoL'},
+      {t:'headline', text:'Sunday'},
+      {t:'washi'},
+      {t:'emoji', char:'☕'}
+    ]},
+  { id:'a5-horizontal', label:'A5 · horizontal spread · Airy',
+    size:'A5', orientation:'horizontal', mode:'spread', density:'airy',
+    elements:[
+      {t:'photoL'}, {t:'photoL'},
+      {t:'headline', text:'Summer by the fjord'},
+      {t:'paragraph', text:SAMPLE_PARA, size:10},
+      {t:'washi'}, {t:'washi'},
+      {t:'emoji', char:'⛵'}
+    ]},
+  { id:'b6-packed', label:'B6 · vertical single · Packed',
+    size:'B6', orientation:'vertical', mode:'single', density:'packed',
+    elements:[
+      {t:'photoP'}, {t:'photoP'}, {t:'sketchL'},
+      {t:'headline', text:'Market day'},
+      {t:'paragraph', text:SAMPLE_PARA, size:8},
+      {t:'washi'}, {t:'washi'},
+      {t:'emoji', char:'🍅'}, {t:'emoji', char:'🧺'}, {t:'emoji', char:'🌿'}
+    ]}
+];
+
+/* =====================================================================
+   9. UI WIRING
+   ===================================================================== */
+const selEl = document.getElementById('scenario');
+const gridEl = document.getElementById('grid');
+const warnEl = document.getElementById('warn');
+
+SCENARIOS.forEach((sc,i)=>{
+  const o = document.createElement('option');
+  o.value = i; o.textContent = sc.label;
+  selEl.appendChild(o);
+});
+
+function run(){
+  const sc = SCENARIOS[selEl.value|0];
+  const page = makePage(sc);
+  if(!feasibility(sc, page)){
+    warnEl.textContent = 'These elements won’t fit comfortably at this density — layouts below are best effort.';
+    warnEl.classList.add('show');
+  } else warnEl.classList.remove('show');
+  const sugs = generateSuggestions(sc);
+  gridEl.innerHTML = sugs.map((s,i)=>`
+    <div class="card">
+      <div class="thumb">${renderSuggestion(s, i)}</div>
+      <div class="cap"><b>${s.arch}</b> · seed ${s.seed % 10000}</div>
+    </div>`).join('');
+}
+
+selEl.addEventListener('change', run);
+document.getElementById('regen').addEventListener('click', run);
+run();
+</script>
+</body>
+</html>
