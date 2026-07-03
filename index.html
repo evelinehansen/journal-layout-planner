@@ -203,7 +203,7 @@
   <div class="sheet hidden" id="addSheet"></div>
   <div class="export-panel hidden" id="exportPanel">
     <label class="tgl"><input type="checkbox" id="expLabels" checked> Dimension labels</label>
-    <label class="tgl"><input type="checkbox" id="expGuides"> Margin &amp; gutter guides</label>
+    <label class="tgl"><input type="checkbox" id="expGuides"> Guides &amp; cm ruler</label>
     <label class="tgl"><input type="checkbox" id="expStamp" checked> Title / date stamp</label>
     <input type="text" id="expStampText" placeholder="Title or date">
     <button id="edExport">Export PNG</button>
@@ -1843,6 +1843,31 @@ function embeddedFontCss(){
   return '';
 }
 
+/* cm ruler on all four edges, drawn inside the 0.5 cm margin zone.
+   Numbers count from the top-left page edge on every side (grid-style). */
+function rulerSVG(page){
+  const W = page.w*S, H = page.h*S;
+  const tick = 1.6, fs = 2.6, col = '#a89478';
+  let lines = '', nums = '';
+  for(let i=1; i<page.w; i++){
+    const x = i*S;
+    lines += `<line x1="${x}" y1="0" x2="${x}" y2="${tick}"/>
+      <line x1="${x}" y1="${H}" x2="${x}" y2="${H-tick}"/>`;
+    nums += `<text x="${x}" y="${tick+fs+0.2}">${i}</text>
+      <text x="${x}" y="${H-tick-1.1}">${i}</text>`;
+  }
+  for(let i=1; i<page.h; i++){
+    const y = i*S;
+    lines += `<line x1="0" y1="${y}" x2="${tick}" y2="${y}"/>
+      <line x1="${W}" y1="${y}" x2="${W-tick}" y2="${y}"/>`;
+    nums += `<text x="${tick+1.8}" y="${y+fs*0.35}">${i}</text>
+      <text x="${W-tick-1.8}" y="${y+fs*0.35}">${i}</text>`;
+  }
+  return `<g stroke="${col}" stroke-width="0.35">${lines}</g>
+    <g fill="${col}" font-family="Helvetica, Arial, sans-serif" font-size="${fs}"
+      text-anchor="middle">${nums}</g>`;
+}
+
 function buildExportSVG(){
   const page = ed.page, W = page.w*S, H = page.h*S;
   const showGuides = $('expGuides').checked;
@@ -1864,6 +1889,7 @@ function buildExportSVG(){
       out += `<rect x="${g.x*S}" y="${g.y*S}" width="${g.w*S}" height="${g.h*S}"
         fill="#f3e9d9" opacity="0.55"/>`;
     }
+    out += rulerSVG(page);
   }
   if(page.spine){
     const sp = page.spine;
