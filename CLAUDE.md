@@ -24,6 +24,7 @@ A mobile-first web tool for planning journal/scrapbook page layouts. Full spec i
 - Keep archetype definitions as **data (parameter objects)**, not hard-coded layouts — this is the tuning surface for aesthetics.
 - Internal geometry works in **centimeters** (page dimensions, margins, element sizes per PRD §5–6); convert to pixels only at render time.
 - Randomization is **seeded per suggestion** so Regenerate produces genuinely new, non-repeating variants.
+- **Color palettes are data too** (post-PRD addition, owner-requested): user-selectable predefined palettes (Greytones, Nature, City, Colourful, Muted) drive washi and placeholder-photo colors. The palette is a user input, not part of the per-suggestion seed.
 
 ## Build order (PRD §13)
 

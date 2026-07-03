@@ -18,6 +18,8 @@
   header h1{font-size:1.25rem; font-weight:700; letter-spacing:.01em;}
   header p{font-size:.8rem; color:var(--ink-soft); margin-top:2px;}
   .controls{display:flex; gap:8px; margin:14px 0 6px; align-items:center;}
+  .palette-row{margin-top:0;}
+  .palette-row label{font-size:.8rem; color:var(--ink-soft); padding-left:2px;}
   select{flex:1; min-width:0; appearance:none; -webkit-appearance:none;
     background:var(--card); border:1px solid var(--line); border-radius:10px;
     padding:10px 12px; font-size:.85rem; color:var(--ink);}
@@ -47,6 +49,10 @@
 <div class="controls">
   <select id="scenario"></select>
   <button id="regen">Regenerate</button>
+</div>
+<div class="controls palette-row">
+  <label for="palette">Palette</label>
+  <select id="palette"></select>
 </div>
 <div class="warn" id="warn"></div>
 <div class="grid" id="grid"></div>
@@ -182,10 +188,35 @@ function newSeed(){
 /* =====================================================================
    3. ELEMENT INSTANTIATION + DENSITY SCALING
    ===================================================================== */
-const WASHI_COLORS = [
-  ['#e8a0a0','#f6d3d3'], ['#9dbfb2','#d6e8e1'], ['#e2b95c','#f6e6bd'],
-  ['#9fb4d8','#dce4f2'], ['#cf9cbd','#eddbe7'], ['#c9a06b','#ecd9bd']
-];
+/* Color palettes (post-PRD addition): data-driven like archetypes.
+   `washi` = [base, accent] pairs; `photo` = [top, bottom] gradient pairs. */
+const PALETTES = {
+  greytones: { label:'Greytones',
+    washi: [['#4a4a4a','#7d7d7d'], ['#8f8f8f','#c4c4c4'], ['#666666','#a8a8a8'],
+            ['#b5b5b5','#e2e2e2']],
+    photo: [['#dcdcdc','#9c9c9c'], ['#c4c4c4','#7e7e7e'], ['#e6e6e6','#ababab'],
+            ['#a8a8a8','#5f5f5f']] },
+  nature: { label:'Nature',
+    washi: [['#9dbfb2','#d6e8e1'], ['#7fa896','#b8d2c4'], ['#9fb4d8','#dce4f2'],
+            ['#84a5a8','#c2d8da'], ['#b3c9a1','#dde9d2']],
+    photo: [['#bcd2c5','#7fa896'], ['#c8d4e8','#8fa3c4'], ['#d3e2d0','#93b58e'],
+            ['#bfd8dc','#7fa4ad']] },
+  city: { label:'City',
+    washi: [['#3d3d3d','#6e6e6e'], ['#c4574e','#e8a29c'], ['#d98a4f','#f2c9a4'],
+            ['#8d6fa8','#c9b6dc']],
+    photo: [['#e0a875','#b05c3a'], ['#c9b6dc','#7a5c9e'], ['#d8d8d8','#5a5a5a'],
+            ['#e8a29c','#a34a42']] },
+  colourful: { label:'Colourful',
+    washi: [['#e8a0a0','#f6d3d3'], ['#9dbfb2','#d6e8e1'], ['#e2b95c','#f6e6bd'],
+            ['#9fb4d8','#dce4f2'], ['#cf9cbd','#eddbe7'], ['#c9a06b','#ecd9bd']],
+    photo: [['#f2c9a4','#d98e73'], ['#bcd2c5','#7fa896'], ['#e8d3a8','#c2a36b'],
+            ['#c8d4e8','#8fa3c4'], ['#e8c4c4','#c48f8f']] },
+  muted: { label:'Muted',
+    washi: [['#e6dcd2','#f3ede6'], ['#d9cfc4','#ece5dc'], ['#d5d8cf','#e9ebe4'],
+            ['#e3d3cd','#f2e8e4'], ['#dcd6ca','#eeeae0']],
+    photo: [['#efe3d5','#d8c5b0'], ['#e2e0d5','#c8c5b4'], ['#e9dcd4','#cdb9ad'],
+            ['#e0e2dc','#bfc4bb']] }
+};
 const PHOTO_MOTIFS = ['landscape','city','abstract'];
 
 function headlineSize(el){
@@ -218,7 +249,7 @@ function scaleEl(el, f){
   el.h = EL[el.t].h * el.s;
 }
 
-function prepareElements(sc, page, rng){
+function prepareElements(sc, page, rng, palette){
   const u = page.usable;
   const els = sc.elements.map((e,i)=>{
     const d = EL[e.t];
@@ -229,10 +260,11 @@ function prepareElements(sc, page, rng){
     if(e.t==='paragraph') setParagraphWidth(el, Math.min(8, u.w*0.65));
     if(d.kind==='photo'){
       el.motif = pick(rng, PHOTO_MOTIFS);
+      el.pal = pick(rng, palette.photo);
     }
     if(d.kind==='washi'){
-      const c = pick(rng, WASHI_COLORS);
-      el.colors = c; el.pattern = pick(rng, ['stripes','dots','plain']);
+      el.colors = pick(rng, palette.washi);
+      el.pattern = pick(rng, ['stripes','dots','plain']);
     }
     return el;
   });
@@ -759,7 +791,7 @@ function pickArchetypes(sc, page, rng){
   return picked;
 }
 
-function generateSuggestions(sc){
+function generateSuggestions(sc, palette){
   const page = makePage(sc);
   const rngPick = mulberry32(newSeed());
   const archetypes = pickArchetypes(sc, page, rngPick);
@@ -767,7 +799,7 @@ function generateSuggestions(sc){
   return archetypes.map(arch=>{
     const seed = newSeed();
     const rng = mulberry32(seed);
-    const els = prepareElements(sc, page, rng);
+    const els = prepareElements(sc, page, rng, palette);
     arch.place({sc, page, els, rng, counts});
     /* validation pass: margins, overlaps already handled per archetype,
        then gutter rules, then anchors follow photos */
@@ -805,16 +837,12 @@ function generateSuggestions(sc){
    7. RENDERING — SVG thumbnails, 10 viewBox units per cm
    ===================================================================== */
 const S = 10;
-const PHOTO_PALETTES = [
-  ['#f2c9a4','#d98e73'], ['#bcd2c5','#7fa896'], ['#e8d3a8','#c2a36b'],
-  ['#c8d4e8','#8fa3c4'], ['#e8c4c4','#c48f8f']
-];
 
 function esc(t){ return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function renderPhoto(el, uid){
   const w = el.w*S, h = el.h*S;
-  const pal = PHOTO_PALETTES[el.id % PHOTO_PALETTES.length];
+  const pal = el.pal;
   const gid = `g${uid}_${el.id}`;
   const pad = Math.min(w,h)*0.055;
   let motif = '';
@@ -979,6 +1007,7 @@ const SCENARIOS = [
    9. UI WIRING
    ===================================================================== */
 const selEl = document.getElementById('scenario');
+const palEl = document.getElementById('palette');
 const gridEl = document.getElementById('grid');
 const warnEl = document.getElementById('warn');
 
@@ -987,15 +1016,22 @@ SCENARIOS.forEach((sc,i)=>{
   o.value = i; o.textContent = sc.label;
   selEl.appendChild(o);
 });
+for(const key of Object.keys(PALETTES)){
+  const o = document.createElement('option');
+  o.value = key; o.textContent = PALETTES[key].label;
+  palEl.appendChild(o);
+}
+palEl.value = 'colourful';
 
 function run(){
   const sc = SCENARIOS[selEl.value|0];
+  const palette = PALETTES[palEl.value] || PALETTES.colourful;
   const page = makePage(sc);
   if(!feasibility(sc, page)){
     warnEl.textContent = 'These elements won’t fit comfortably at this density — layouts below are best effort.';
     warnEl.classList.add('show');
   } else warnEl.classList.remove('show');
-  const sugs = generateSuggestions(sc);
+  const sugs = generateSuggestions(sc, palette);
   gridEl.innerHTML = sugs.map((s,i)=>`
     <div class="card">
       <div class="thumb">${renderSuggestion(s, i)}</div>
@@ -1004,6 +1040,7 @@ function run(){
 }
 
 selEl.addEventListener('change', run);
+palEl.addEventListener('change', run);
 document.getElementById('regen').addEventListener('click', run);
 run();
 </script>
