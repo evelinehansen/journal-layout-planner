@@ -30,5 +30,10 @@ A mobile-first web tool for planning journal/scrapbook page layouts. Full spec i
 
 1. Geometry model + archetype engine rendered as static thumbnails — get generation quality right first. ✅
 2. Input flow (added between PRD steps): input screen → feasibility check → suggestions. ✅
-3. Touch editor (largest effort — budget iteration here).
+3. Touch editor (largest effort — budget iteration here). ✅ v1 built; needs on-device iteration.
 4. Export (reuses the editor render path).
+
+## Fonts
+
+Headline font is **Caveat 600** (SIL OFL), latin subset embedded as base64 `@font-face` in
+`index.html` — do not swap for a CDN `<link>` (offline + single-file constraints).
