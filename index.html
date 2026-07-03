@@ -52,6 +52,10 @@
   .mini{background:var(--card); color:var(--accent); border:1px solid var(--line);
     font-size:.75rem; padding:0 10px; min-height:44px; white-space:nowrap;
     border-radius:10px; font-weight:600; flex:none;}
+  label.mini{display:inline-flex; align-items:center; justify-content:center;
+    position:relative; cursor:pointer;}
+  label.mini input[type=file]{position:absolute; width:1px; height:1px;
+    opacity:0; overflow:hidden; clip:rect(0 0 0 0);}
   .chips{display:flex; gap:6px; flex-wrap:wrap;}
   .chip{display:flex; align-items:center; gap:6px; background:var(--card);
     border:1px solid var(--line); border-radius:999px; padding:0 12px;
@@ -1156,12 +1160,14 @@ function photoSlotHtml(k, label){
     <div class="slot" data-k="${k}" data-i="${i}">
       ${slot.src ? `<img src="${slot.src}" alt="">` : ''}
       <select class="photo-src">
-        <option value="landscape" ${slot.source==='landscape'&&!slot.src?'selected':''}>${label} ${i+1}: Landscape placeholder</option>
-        <option value="city" ${slot.source==='city'&&!slot.src?'selected':''}>${label} ${i+1}: City placeholder</option>
-        <option value="abstract" ${slot.source==='abstract'&&!slot.src?'selected':''}>${label} ${i+1}: Abstract placeholder</option>
-        <option value="upload" ${slot.src?'selected':''}>${label} ${i+1}: ${slot.src?'Your photo ✓':'Upload photo…'}</option>
+        ${slot.src ? `<option value="__photo" selected>${label} ${i+1}: Your photo ✓</option>` : ''}
+        <option value="landscape" ${!slot.src&&slot.source==='landscape'?'selected':''}>${label} ${i+1}: Landscape placeholder</option>
+        <option value="city" ${!slot.src&&slot.source==='city'?'selected':''}>${label} ${i+1}: City placeholder</option>
+        <option value="abstract" ${!slot.src&&slot.source==='abstract'?'selected':''}>${label} ${i+1}: Abstract placeholder</option>
       </select>
-      <input type="file" accept="image/*" hidden>
+      <!-- label-wrapped file input: the only picker trigger iOS Safari
+           reliably honors (programmatic .click() is ignored there) -->
+      <label class="mini upload">${slot.src?'Replace':'Upload'}<input type="file" accept="image/*"></label>
     </div>`).join('');
 }
 
@@ -1340,10 +1346,7 @@ $('detailSections').addEventListener('change', e=>{
   else if(t.classList.contains('photo-src')){
     const slot = t.closest('.slot');
     const s = state.photoSlots[slot.dataset.k][+slot.dataset.i];
-    if(t.value==='upload'){
-      slot.querySelector('input[type=file]').click();
-      if(!s.src) t.value = s.source;   /* revert until a file actually arrives */
-    } else { s.source = t.value; s.src = null; renderDetails(); }
+    if(t.value!=='__photo'){ s.source = t.value; s.src = null; renderDetails(); }
   } else if(t.type==='file' && t.files && t.files[0]){
     const slot = t.closest('.slot');
     const s = state.photoSlots[slot.dataset.k][+slot.dataset.i];
