@@ -12,7 +12,7 @@
   :root{
     --bg:#faf5ee; --card:#fffdf9; --paper:#fffefa;
     --ink:#4a3f35; --ink-soft:#8a7a68; --line:#e9dfd2;
-    --accent:#c96f4a; --accent-soft:#f3e2d6;
+    --accent:#7fa08c; --accent-soft:#e6ecdf;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
   html,body{background:var(--bg); color:var(--ink);
@@ -69,17 +69,13 @@
   .chip .dots i{width:10px; height:10px; border-radius:50%; display:block;
     border:1px solid #00000014;}
   .cta{width:100%; min-height:50px; font-size:.95rem; margin-top:20px;
-    position:sticky; bottom:12px; box-shadow:0 4px 14px rgba(120,60,30,.25);}
+    position:sticky; bottom:12px; box-shadow:0 4px 14px rgba(70,90,65,.22);}
   .warn-actions{display:flex; gap:8px; margin-top:8px;}
   .warn-actions .ghost{background:transparent; color:#8a5a34; border:1px solid #ecd3bd;}
   .bar{display:flex; gap:8px; align-items:center; margin:14px 0 6px;}
   .bar .ghost{background:var(--card); color:var(--ink); border:1px solid var(--line);}
   .bar .spacer{flex:1;}
   .summary{font-size:.75rem; color:var(--ink-soft); margin:4px 0 8px;}
-  .tabs{display:flex; gap:6px; margin:8px 0;}
-  .tabs button{flex:1; background:var(--card); color:var(--ink); border:1px solid var(--line);}
-  .tabs button.on{background:var(--accent-soft); border-color:var(--accent); font-weight:600;}
-  .tabs.hidden{display:none;}
   .hint{font-size:.72rem; color:var(--ink-soft); text-align:center; margin-top:10px;}
   .card{cursor:pointer;}
   .card:active{opacity:.8;}
@@ -139,7 +135,6 @@
     <div class="seg" data-key="mode">
       <button data-v="single" class="on">Single</button>
       <button data-v="spread">Spread</button>
-      <button data-v="two">Two pages</button>
     </div>
   </div>
   <div class="section"><h2>Orientation</h2>
@@ -173,10 +168,6 @@
     <button id="regen">Regenerate</button>
   </div>
   <p class="summary" id="summary"></p>
-  <div class="tabs hidden" id="pageTabs">
-    <button data-p="0" class="on">Page 1</button>
-    <button data-p="1">Page 2</button>
-  </div>
   <div class="chips" id="chipsSuggest"></div>
   <div class="warn" id="warn"></div>
   <div class="grid" id="grid"></div>
@@ -202,10 +193,10 @@
     <button class="ghost wide" id="edAdd">+ Add element</button>
   </div>
   <div class="sheet hidden" id="addSheet"></div>
-  <p class="hint" id="edHint">Tap to select · drag to move · pinch to zoom · drag background to pan</p>
+  <p class="hint" id="edHint">Tap to select · tap canvas to deselect · drag to move · pinch to zoom · drag background to pan</p>
 </div>
 
-<footer>Everything stays on your device — photos and text are never uploaded.</footer>
+<footer>Everything stays on your device. Photos and text are never uploaded.</footer>
 
 <script>
 'use strict';
@@ -371,21 +362,30 @@ function headlineSize(el){
   el.h = 1.5 * el.s;
   el.w = Math.max(2.5, el.text.length * 0.36 * el.h);
 }
+/* wrap + size paragraphs by measuring real rendered text widths (canvas
+   measureText with the same font stack the SVG uses), so the block hugs
+   its text exactly on any platform's fonts */
+const _measureCtx = document.createElement('canvas').getContext('2d');
 function setParagraphWidth(el, width){
-  el.w = Math.max(2.5, width);
+  const maxW = Math.max(2.5, width) * 10;   /* svg units */
   const lh = PARA_LH[el.size] || PARA_LH[10];
-  const charW = 0.32 * lh;
-  const cpl = Math.max(8, Math.floor(el.w / charW));
+  _measureCtx.font = `${lh*0.72*10}px 'Noteworthy','Marker Felt','Segoe Print',cursive`;
   const words = el.text.split(/\s+/);
   const lines = [];
   let line = '';
   for(const wd of words){
     const cand = line ? line + ' ' + wd : wd;
-    if(cand.length > cpl && line){ lines.push(line); line = wd; }
+    if(_measureCtx.measureText(cand).width > maxW && line){ lines.push(line); line = wd; }
     else line = cand;
   }
   if(line) lines.push(line);
   el.lines = lines; el.lh = lh;
+  let widest = 0;
+  for(const l of lines){
+    const w = _measureCtx.measureText(l).width;
+    if(w > widest) widest = w;
+  }
+  el.w = Math.max(2.5, widest/10 + 0.1);
   el.h = lines.length * lh + 0.2;
 }
 /* rescale relative to type default, clamped to 60–130% (PRD 5.4) */
@@ -1087,7 +1087,7 @@ function renderEmoji(el){
 
 function pageBgSVG(page){
   const W = page.w*S, H = page.h*S;
-  let out = `<rect x="0" y="0" width="${W}" height="${H}" fill="#fffefa"
+  let out = `<rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"
     stroke="#d8cbb8" stroke-width="1"/>`;
   /* guides: margins + gutter hint (subtle, PRD 5.3) */
   out += `<rect x="${MARGIN*S}" y="${MARGIN*S}" width="${W-2*MARGIN*S}" height="${H-2*MARGIN*S}"
@@ -1175,7 +1175,7 @@ const state = {
   photoSlots:{photoL:[], photoP:[]},   /* {source:'landscape'|'city'|'abstract', src:dataURL|null} */
   headlines:[], paragraphs:[], emojis:[]
 };
-let sets = [null, null];   /* suggestion sets: [page1, page2] ('two' mode uses both) */
+let sets = [null];   /* current suggestion set */
 let activePage = 0;
 let bestEffort = false;
 
@@ -1333,17 +1333,15 @@ function onGenerate(force){
     return;
   }
   hideFeas();
-  sets = [null, null]; activePage = 0;
+  sets = [null]; activePage = 0;
   sets[0] = generateSuggestions(sc, PALETTES[state.palette]);
-  $('pageTabs').classList.toggle('hidden', state.mode!=='two');
-  $('pageTabs').querySelectorAll('button').forEach((b,i)=>b.classList.toggle('on', i===0));
   showScreen('suggest');
   renderGrid();
 }
 
 function renderGrid(){
   const sugs = sets[activePage] || [];
-  const modeLabel = {single:'single page', spread:'spread', two:'two pages'}[state.mode];
+  const modeLabel = {single:'single page', spread:'spread'}[state.mode];
   $('summary').textContent =
     `${state.size} · ${state.orientation} · ${modeLabel} · ${state.density} · ${PALETTES[state.palette].label}`;
   if(bestEffort){
@@ -1433,15 +1431,6 @@ document.addEventListener('click', e=>{
   if(!$('screen-suggest').classList.contains('hidden')){ recolor(); renderGrid(); }
 });
 
-$('pageTabs').addEventListener('click', e=>{
-  const b = e.target.closest('button[data-p]');
-  if(!b) return;
-  activePage = +b.dataset.p;
-  $('pageTabs').querySelectorAll('button').forEach(x=>x.classList.toggle('on', x===b));
-  if(!sets[activePage]) sets[activePage] = generateSuggestions(buildScenario(), PALETTES[state.palette]);
-  renderGrid();
-});
-
 $('generate').addEventListener('click', ()=>onGenerate(false));
 $('regen').addEventListener('click', ()=>{
   sets[activePage] = generateSuggestions(buildScenario(), PALETTES[state.palette]);
@@ -1505,13 +1494,13 @@ function renderSelection(){
   const px = pxToSvg(), hr = 12*px, hit = 26*px;
   l.setAttribute('transform', elTransform(el));
   l.innerHTML = `
-    <rect x="0" y="0" width="${w}" height="${h}" fill="none" stroke="#c96f4a"
+    <rect x="0" y="0" width="${w}" height="${h}" fill="none" stroke="#7fa08c"
       stroke-width="${1.6*px}" stroke-dasharray="${5*px} ${4*px}"/>
-    <line x1="${w/2}" y1="0" x2="${w/2}" y2="${-30*px}" stroke="#c96f4a" stroke-width="${1.2*px}"/>
-    <circle cx="${w/2}" cy="${-30*px}" r="${hr}" fill="#c96f4a"/>
+    <line x1="${w/2}" y1="0" x2="${w/2}" y2="${-30*px}" stroke="#7fa08c" stroke-width="${1.2*px}"/>
+    <circle cx="${w/2}" cy="${-30*px}" r="${hr}" fill="#7fa08c"/>
     <circle data-h="rotate" cx="${w/2}" cy="${-30*px}" r="${hit}" fill="rgba(0,0,0,0)"/>
     <rect x="${w-hr}" y="${h-hr}" width="${2*hr}" height="${2*hr}" rx="${3*px}"
-      fill="#fff" stroke="#c96f4a" stroke-width="${1.6*px}"/>
+      fill="#fff" stroke="#7fa08c" stroke-width="${1.6*px}"/>
     <rect data-h="resize" x="${w-hit}" y="${h-hit}" width="${2*hit}" height="${2*hit}" fill="rgba(0,0,0,0)"/>`;
 }
 
@@ -1544,7 +1533,7 @@ function setLocked(v){
   $('edLock').textContent = v ? 'Unlock' : 'Lock';
   $('edHint').textContent = v
     ? 'Locked — export arrives in Phase 3. Unlock to keep editing.'
-    : 'Tap to select · drag to move · pinch to zoom · drag background to pan';
+    : 'Tap to select · tap canvas to deselect · drag to move · pinch to zoom · drag background to pan';
 }
 
 /* ---- snapping (move): usable edges/centers, spine, other element centers ---- */
@@ -1572,9 +1561,9 @@ function drawGuides(sn){
   const W = ed.page.w*S, H = ed.page.h*S, px = pxToSvg();
   let out = '';
   if(sn && sn.gx!=null) out += `<line x1="${sn.gx*S}" y1="0" x2="${sn.gx*S}" y2="${H}"
-    stroke="#c96f4a" stroke-width="${1*px}" stroke-dasharray="${3*px} ${3*px}"/>`;
+    stroke="#7fa08c" stroke-width="${1*px}" stroke-dasharray="${3*px} ${3*px}"/>`;
   if(sn && sn.gy!=null) out += `<line x1="0" y1="${sn.gy*S}" x2="${W}" y2="${sn.gy*S}"
-    stroke="#c96f4a" stroke-width="${1*px}" stroke-dasharray="${3*px} ${3*px}"/>`;
+    stroke="#7fa08c" stroke-width="${1*px}" stroke-dasharray="${3*px} ${3*px}"/>`;
   l.innerHTML = out;
 }
 
@@ -1671,7 +1660,11 @@ edSvg.addEventListener('pointermove', e=>{
     const a = -(el.rot||0)*Math.PI/180;
     const lx = (sp.x-c.x)*Math.cos(a)-(sp.y-c.y)*Math.sin(a);
     const ly = (sp.x-c.x)*Math.sin(a)+(sp.y-c.y)*Math.cos(a);
-    if(el.kind === 'washi'){ el.w = clamp(2*Math.abs(lx)/S, 1, 80); }
+    /* washi is free in both axes — vertical strips keep their length in h */
+    if(el.kind === 'washi'){
+      el.w = clamp(2*Math.abs(lx)/S, 0.4, 80);
+      el.h = clamp(2*Math.abs(ly)/S, 0.4, 80);
+    }
     else if(el.t === 'paragraph'){ setParagraphWidth(el, clamp(2*Math.abs(lx)/S, 2.5, 80)); }
     else {
       /* aspect locked (photos/sketches/emoji/headline), scaled about center */
