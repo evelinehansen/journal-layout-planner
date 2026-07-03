@@ -96,6 +96,14 @@
     font-weight:500; font-size:.82rem;}
   .sheet .sheet-title{grid-column:1/-1; font-size:.72rem; text-transform:uppercase;
     letter-spacing:.08em; color:var(--ink-soft); font-weight:600; padding:2px 4px 0;}
+  .export-panel{display:flex; flex-direction:column; gap:8px; margin-top:10px;
+    background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px;}
+  .export-panel.hidden{display:none;}
+  .tgl{display:flex; align-items:center; gap:10px; font-size:.85rem; min-height:32px;}
+  .tgl input{width:20px; height:20px; accent-color:var(--accent);}
+  #expStampText{background:var(--bg); border:1px solid var(--line); border-radius:10px;
+    padding:10px 12px; font-size:16px; color:var(--ink); font-family:inherit;}
+  #edExport{min-height:48px; font-size:.9rem;}
   select{flex:1; min-width:0; appearance:none; -webkit-appearance:none;
     background:var(--card); border:1px solid var(--line); border-radius:10px;
     padding:10px 12px; font-size:.85rem; color:var(--ink);}
@@ -193,6 +201,13 @@
     <button class="ghost wide" id="edAdd">+ Add element</button>
   </div>
   <div class="sheet hidden" id="addSheet"></div>
+  <div class="export-panel hidden" id="exportPanel">
+    <label class="tgl"><input type="checkbox" id="expLabels" checked> Dimension labels</label>
+    <label class="tgl"><input type="checkbox" id="expGuides"> Margin &amp; gutter guides</label>
+    <label class="tgl"><input type="checkbox" id="expStamp" checked> Title / date stamp</label>
+    <input type="text" id="expStampText" placeholder="Title or date">
+    <button id="edExport">Export PNG</button>
+  </div>
   <p class="hint" id="edHint">Tap to select · tap canvas to deselect · drag to move · pinch to zoom · drag background to pan</p>
 </div>
 
@@ -1530,9 +1545,13 @@ function setLocked(v){
   selectEl(null);
   $('addBar').classList.toggle('hidden', v);
   $('addSheet').classList.add('hidden');
+  $('exportPanel').classList.toggle('hidden', !v);
+  if(v && !$('expStampText').value.trim())
+    $('expStampText').value = new Date().toLocaleDateString('en-GB',
+      {day:'numeric', month:'short', year:'numeric'});
   $('edLock').textContent = v ? 'Unlock' : 'Lock';
   $('edHint').textContent = v
-    ? 'Locked — export arrives in Phase 3. Unlock to keep editing.'
+    ? 'Locked. Adjust the export options, then Export PNG.'
     : 'Tap to select · tap canvas to deselect · drag to move · pinch to zoom · drag background to pan';
 }
 
@@ -1660,8 +1679,9 @@ edSvg.addEventListener('pointermove', e=>{
     const a = -(el.rot||0)*Math.PI/180;
     const lx = (sp.x-c.x)*Math.cos(a)-(sp.y-c.y)*Math.sin(a);
     const ly = (sp.x-c.x)*Math.sin(a)+(sp.y-c.y)*Math.cos(a);
-    /* washi is free in both axes — vertical strips keep their length in h */
-    if(el.kind === 'washi'){
+    /* washi and sketches are free in both axes (owner preference overrides
+       the PRD's aspect lock for sketches); vertical washi keeps length in h */
+    if(el.kind === 'washi' || el.kind === 'sketch'){
       el.w = clamp(2*Math.abs(lx)/S, 0.4, 80);
       el.h = clamp(2*Math.abs(ly)/S, 0.4, 80);
     }
@@ -1803,6 +1823,105 @@ function addElement(type){
   renderEditor();
   selectEl(el);
 }
+
+/* ---- export (Phase 3, PRD 9) ---- */
+const EXPORT_PX_PER_CM = 60;   /* ≈150 dpi — "2× resolution" reference render */
+
+function fmtCm(v){
+  const r = Math.round(v*10)/10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+/* the embedded Caveat @font-face must travel inside the SVG string:
+   an SVG rasterized via <img> is its own document and can't see page CSS */
+function embeddedFontCss(){
+  try{
+    for(const sheet of document.styleSheets)
+      for(const rule of sheet.cssRules)
+        if(rule instanceof CSSFontFaceRule && rule.cssText.includes('Caveat'))
+          return rule.cssText;
+  }catch(_){}
+  return '';
+}
+
+function buildExportSVG(){
+  const page = ed.page, W = page.w*S, H = page.h*S;
+  const showGuides = $('expGuides').checked;
+  const showLabels = $('expLabels').checked;
+  const stamp = $('expStamp').checked ? $('expStampText').value.trim() : '';
+  let out = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 ${W+4} ${H+4}"
+    width="${Math.round((page.w+0.4)*EXPORT_PX_PER_CM)}"
+    height="${Math.round((page.h+0.4)*EXPORT_PX_PER_CM)}">`;
+  out += `<style>${embeddedFontCss()}</style>`;
+  out += `<rect x="-2" y="-2" width="${W+4}" height="${H+4}" fill="#ffffff"/>`;
+  /* thin page outline; margins/gutter only when guides are on; spine always */
+  out += `<rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"
+    stroke="#b9a88f" stroke-width="1"/>`;
+  if(showGuides){
+    out += `<rect x="${MARGIN*S}" y="${MARGIN*S}" width="${W-2*MARGIN*S}" height="${H-2*MARGIN*S}"
+      fill="none" stroke="#d8cbb8" stroke-width="0.6" stroke-dasharray="3 4"/>`;
+    if(page.gutter){
+      const g = page.gutter;
+      out += `<rect x="${g.x*S}" y="${g.y*S}" width="${g.w*S}" height="${g.h*S}"
+        fill="#f3e9d9" opacity="0.55"/>`;
+    }
+  }
+  if(page.spine){
+    const sp = page.spine;
+    out += sp.axis==='v'
+      ? `<line x1="${sp.pos*S}" y1="0" x2="${sp.pos*S}" y2="${H}" stroke="#b9a88f" stroke-width="0.9"/>`
+      : `<line x1="0" y1="${sp.pos*S}" x2="${W}" y2="${sp.pos*S}" stroke="#b9a88f" stroke-width="0.9"/>`;
+  }
+  const sorted = ed.els.filter(e=>e.placed).slice().sort((a,b)=>a.z-b.z);
+  out += sorted.map(el=>elGroupSVG(el, 'ex')).join('');
+  if(showLabels){
+    for(const el of sorted){
+      const cx = (el.x+el.w/2)*S, cy = (el.y+el.h/2)*S;
+      const txt = `${fmtCm(el.w)} × ${fmtCm(el.h)} cm`;
+      const tw = txt.length*3.1+6;
+      out += `<g transform="translate(${cx} ${cy})">
+        <rect x="${-tw/2}" y="-4.4" width="${tw}" height="8.8" rx="2.2"
+          fill="#ffffff" fill-opacity="0.88" stroke="#c9b895" stroke-width="0.4"/>
+        <text x="0" y="2.1" text-anchor="middle" font-size="5.6" fill="#4a3f35"
+          font-family="Helvetica, Arial, sans-serif">${esc(txt)}</text></g>`;
+    }
+  }
+  if(stamp){
+    out += `<text x="${W-MARGIN*S-2}" y="${H-MARGIN*S-3}" text-anchor="end" font-size="10"
+      fill="#8a7a68" font-family="'Caveat','Bradley Hand','Marker Felt',cursive"
+      font-weight="600">${esc(stamp)}</text>`;
+  }
+  return out + '</svg>';
+}
+
+function exportPNG(){
+  const page = ed.page;
+  const svg = buildExportSVG();
+  const url = URL.createObjectURL(new Blob([svg], {type:'image/svg+xml;charset=utf-8'}));
+  const img = new Image();
+  img.onload = ()=>{
+    const c = document.createElement('canvas');
+    c.width = Math.round((page.w+0.4)*EXPORT_PX_PER_CM);
+    c.height = Math.round((page.h+0.4)*EXPORT_PX_PER_CM);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(url);
+    c.toBlob(b=>{
+      if(!b){ $('edHint').textContent = 'Export failed — please try again.'; return; }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(b);
+      a.download = `journal-layout-${new Date().toISOString().slice(0,10)}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 10000);
+    }, 'image/png');
+  };
+  img.onerror = ()=>{
+    URL.revokeObjectURL(url);
+    $('edHint').textContent = 'Export failed — please try again.';
+  };
+  img.src = url;
+}
+$('edExport').addEventListener('click', exportPNG);
 
 /* tap a suggestion card to edit it */
 gridEl.addEventListener('click', e=>{
