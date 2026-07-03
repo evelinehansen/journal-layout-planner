@@ -17,9 +17,62 @@
     max-width:560px; margin:0 auto;}
   header h1{font-size:1.25rem; font-weight:700; letter-spacing:.01em;}
   header p{font-size:.8rem; color:var(--ink-soft); margin-top:2px;}
-  .controls{display:flex; gap:8px; margin:14px 0 6px; align-items:center;}
-  .palette-row{margin-top:0;}
-  .palette-row label{font-size:.8rem; color:var(--ink-soft); padding-left:2px;}
+  .screen.hidden{display:none;}
+  .section{margin-top:18px;}
+  .section h2{font-size:.72rem; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--ink-soft); margin-bottom:8px; font-weight:600;}
+  .seg{display:flex; gap:6px; flex-wrap:wrap;}
+  .seg button{flex:1 1 0; min-width:68px; min-height:44px; background:var(--card);
+    color:var(--ink); border:1px solid var(--line); border-radius:10px; padding:6px 8px;
+    font-size:.82rem; font-weight:500; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:1px;}
+  .seg button small{font-size:.62rem; color:var(--ink-soft); font-weight:400;}
+  .seg button.on{background:var(--accent-soft); border-color:var(--accent); font-weight:600;}
+  .elrow{display:flex; align-items:center; justify-content:space-between;
+    padding:7px 0; border-bottom:1px solid var(--line);}
+  .elrow:last-child{border-bottom:none;}
+  .elrow .lbl{font-size:.85rem;}
+  .elrow .lbl small{display:block; color:var(--ink-soft); font-size:.68rem;}
+  .stepper{display:flex; align-items:center; border:1px solid var(--line);
+    border-radius:10px; background:var(--card); overflow:hidden;}
+  .stepper button{background:none; border:none; color:var(--accent); width:44px;
+    height:44px; min-height:44px; font-size:1.3rem; padding:0; border-radius:0;}
+  .stepper button:disabled{color:var(--line);}
+  .stepper .val{min-width:28px; text-align:center; font-size:.9rem; font-weight:600;}
+  .details{margin-top:8px; display:flex; flex-direction:column; gap:8px;}
+  .slot{display:flex; gap:8px; align-items:center;}
+  .slot select, .details input[type=text], .details textarea, .details select{
+    width:100%; background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:10px 12px; font-size:16px; color:var(--ink); font-family:inherit;
+    appearance:none; -webkit-appearance:none;}
+  .details textarea{min-height:64px; resize:vertical;}
+  .slot img{width:44px; height:44px; object-fit:cover; border-radius:8px;
+    border:1px solid var(--line); flex:none;}
+  .slot .emoji-in{width:64px; flex:none; text-align:center; font-size:1.15rem;}
+  .mini{background:var(--card); color:var(--accent); border:1px solid var(--line);
+    font-size:.75rem; padding:0 10px; min-height:44px; white-space:nowrap;
+    border-radius:10px; font-weight:600; flex:none;}
+  .chips{display:flex; gap:6px; flex-wrap:wrap;}
+  .chip{display:flex; align-items:center; gap:6px; background:var(--card);
+    border:1px solid var(--line); border-radius:999px; padding:0 12px;
+    min-height:40px; font-size:.78rem; color:var(--ink);}
+  .chip.on{border-color:var(--accent); background:var(--accent-soft); font-weight:600;}
+  .chip .dots{display:flex; gap:2px;}
+  .chip .dots i{width:10px; height:10px; border-radius:50%; display:block;
+    border:1px solid #00000014;}
+  .cta{width:100%; min-height:50px; font-size:.95rem; margin-top:20px;
+    position:sticky; bottom:12px; box-shadow:0 4px 14px rgba(120,60,30,.25);}
+  .warn-actions{display:flex; gap:8px; margin-top:8px;}
+  .warn-actions .ghost{background:transparent; color:#8a5a34; border:1px solid #ecd3bd;}
+  .bar{display:flex; gap:8px; align-items:center; margin:14px 0 6px;}
+  .bar .ghost{background:var(--card); color:var(--ink); border:1px solid var(--line);}
+  .bar .spacer{flex:1;}
+  .summary{font-size:.75rem; color:var(--ink-soft); margin:4px 0 8px;}
+  .tabs{display:flex; gap:6px; margin:8px 0;}
+  .tabs button{flex:1; background:var(--card); color:var(--ink); border:1px solid var(--line);}
+  .tabs button.on{background:var(--accent-soft); border-color:var(--accent); font-weight:600;}
+  .tabs.hidden{display:none;}
+  .hint{font-size:.72rem; color:var(--ink-soft); text-align:center; margin-top:10px;}
   select{flex:1; min-width:0; appearance:none; -webkit-appearance:none;
     background:var(--card); border:1px solid var(--line); border-radius:10px;
     padding:10px 12px; font-size:.85rem; color:var(--ink);}
@@ -43,21 +96,67 @@
 <body>
 <header>
   <h1>Journal Layout Planner</h1>
-  <p>Phase 1 preview — layout engine · four suggestions</p>
+  <p>Pick your page and elements — get four layout ideas</p>
 </header>
 
-<div class="controls">
-  <select id="scenario"></select>
-  <button id="regen">Regenerate</button>
+<div id="screen-input" class="screen">
+  <div class="section"><h2>Notebook size</h2>
+    <div class="seg" data-key="size">
+      <button data-v="A5">A5<small>14.8 × 21 cm</small></button>
+      <button data-v="B6">B6<small>12.5 × 17.6 cm</small></button>
+      <button data-v="A6">A6<small>10.5 × 14.8 cm</small></button>
+      <button data-v="TN" class="on">TN<small>11 × 21 cm</small></button>
+    </div>
+  </div>
+  <div class="section"><h2>Page</h2>
+    <div class="seg" data-key="mode">
+      <button data-v="single" class="on">Single</button>
+      <button data-v="spread">Spread</button>
+      <button data-v="two">Two pages</button>
+    </div>
+  </div>
+  <div class="section"><h2>Orientation</h2>
+    <div class="seg" data-key="orientation">
+      <button data-v="vertical" class="on">Vertical</button>
+      <button data-v="horizontal">Horizontal</button>
+    </div>
+  </div>
+  <div class="section"><h2>Density</h2>
+    <div class="seg" data-key="density">
+      <button data-v="airy">Airy</button>
+      <button data-v="balanced" class="on">Balanced</button>
+      <button data-v="packed">Packed</button>
+    </div>
+  </div>
+  <div class="section"><h2>Colour palette</h2>
+    <div class="chips" id="chipsInput"></div>
+  </div>
+  <div class="section"><h2>Elements</h2>
+    <div id="elementRows"></div>
+  </div>
+  <div id="detailSections"></div>
+  <div class="warn" id="feasWarn"></div>
+  <button class="cta" id="generate">Generate 4 layouts</button>
 </div>
-<div class="controls palette-row">
-  <label for="palette">Palette</label>
-  <select id="palette"></select>
-</div>
-<div class="warn" id="warn"></div>
-<div class="grid" id="grid"></div>
 
-<footer>Static engine preview. Editor and export come in later phases.</footer>
+<div id="screen-suggest" class="screen hidden">
+  <div class="bar">
+    <button class="ghost" id="back">‹ Inputs</button>
+    <div class="spacer"></div>
+    <button id="regen">Regenerate</button>
+  </div>
+  <p class="summary" id="summary"></p>
+  <div class="tabs hidden" id="pageTabs">
+    <button data-p="0" class="on">Page 1</button>
+    <button data-p="1">Page 2</button>
+  </div>
+  <div class="chips" id="chipsSuggest"></div>
+  <div class="warn" id="warn"></div>
+  <div class="grid" id="grid"></div>
+  <p class="hint">Tap-to-edit arrives in the next phase.</p>
+</div>
+
+<footer>Everything stays on your device — photos and text are never uploaded.</footer>
 
 <script>
 'use strict';
@@ -259,7 +358,8 @@ function prepareElements(sc, page, rng, palette){
     if(e.t==='headline') headlineSize(el);
     if(e.t==='paragraph') setParagraphWidth(el, Math.min(8, u.w*0.65));
     if(d.kind==='photo'){
-      el.motif = pick(rng, PHOTO_MOTIFS);
+      el.motif = e.motif || pick(rng, PHOTO_MOTIFS);
+      el.src = e.src || null;   /* user-uploaded photo as local data URL */
       el.pal = pick(rng, palette.photo);
     }
     if(d.kind==='washi'){
@@ -491,6 +591,14 @@ const ARCHETYPES = [
     const {visuals, texts, washis, emojis} = byKind(els);
     const items = shuffle(rng, visuals.concat(texts));
     const n = items.length;
+    if(!n){   /* washi/emoji-only page: decorations still get placed below */
+      washis.forEach(wa=>washiBorder(wa, page, rng));
+      emojis.forEach(em=>{
+        const p = findSpot(els, page, em.w, em.h, rng);
+        em.x = p.x; em.y = p.y; em.placed = true; em.z = 40;
+      });
+      return;
+    }
     let cols = clamp(Math.round(Math.sqrt(n * (u.w/u.h))), 1, Math.min(n,4));
     if(n>2 && rng()<0.3) cols = clamp(cols + (rng()<0.5?-1:1), 1, Math.min(n,4));
     const rows = Math.ceil(n/cols);
@@ -861,14 +969,15 @@ function renderPhoto(el, uid){
       <circle cx="68" cy="48" r="30" fill="#00000012"/>
       <path d="M0 70 Q50 50 100 68" stroke="#ffffff50" stroke-width="4" fill="none"/>`;
   }
-  return `<rect width="${w}" height="${h}" fill="#fff" stroke="#d8cbb8" stroke-width="0.7"/>
-    <svg x="${pad}" y="${pad}" width="${w-2*pad}" height="${h-2*pad}"
-         viewBox="0 0 100 75" preserveAspectRatio="xMidYMid slice">
-      <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+  const inner = el.src
+    ? `<image href="${el.src}" width="100" height="75" preserveAspectRatio="xMidYMid slice"/>`
+    : `<defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0" stop-color="${pal[0]}"/><stop offset="1" stop-color="${pal[1]}"/>
       </linearGradient></defs>
-      <rect width="100" height="75" fill="url(#${gid})"/>${motif}
-    </svg>`;
+      <rect width="100" height="75" fill="url(#${gid})"/>${motif}`;
+  return `<rect width="${w}" height="${h}" fill="#fff" stroke="#d8cbb8" stroke-width="0.7"/>
+    <svg x="${pad}" y="${pad}" width="${w-2*pad}" height="${h-2*pad}"
+         viewBox="0 0 100 75" preserveAspectRatio="xMidYMid slice">${inner}</svg>`;
 }
 
 function renderSketch(el){
@@ -924,7 +1033,7 @@ function renderParagraph(el){
 function renderEmoji(el){
   const w = el.w*S, h = el.h*S;
   return `<text x="${w/2}" y="${h*0.82}" text-anchor="middle"
-    font-size="${h*0.85}">${el.char}</text>`;
+    font-size="${h*0.85}">${esc(el.char)}</text>`;
 }
 
 function renderSuggestion(sug, uid){
@@ -962,87 +1071,329 @@ function renderSuggestion(sug, uid){
 }
 
 /* =====================================================================
-   8. SAMPLE SCENARIOS (hardcoded for Phase 1)
+   8. PLACEHOLDER TEXT LIBRARY (PRD 6.6) + INPUT CONFIG
+   Sources: pre-1928 public domain (Wells, Verne) and original absurdist
+   lines written for this app — no copyrighted text.
    ===================================================================== */
-const SAMPLE_PARA = 'The robot wrote its poem twice, then filed it under improbable weather. We drank coffee on the pier while the tide quietly reorganized the afternoon, and nobody minded at all.';
-const SCENARIOS = [
-  { id:'tn-spread', label:'TN · vertical spread · Balanced',
-    size:'TN', orientation:'vertical', mode:'spread', density:'balanced',
-    elements:[
-      {t:'photoL'}, {t:'photoP'}, {t:'sketchS'},
-      {t:'headline', text:'Kyoto in the rain'},
-      {t:'paragraph', text:SAMPLE_PARA, size:10},
-      {t:'washi'}, {t:'washi'},
-      {t:'emoji', char:'🌧️'}, {t:'emoji', char:'🍜'}
-    ]},
-  { id:'a6-single', label:'A6 · vertical single · Balanced',
-    size:'A6', orientation:'vertical', mode:'single', density:'balanced',
-    elements:[
-      {t:'photoL'},
-      {t:'headline', text:'Sunday'},
-      {t:'washi'},
-      {t:'emoji', char:'☕'}
-    ]},
-  { id:'a5-horizontal', label:'A5 · horizontal spread · Airy',
-    size:'A5', orientation:'horizontal', mode:'spread', density:'airy',
-    elements:[
-      {t:'photoL'}, {t:'photoL'},
-      {t:'headline', text:'Summer by the fjord'},
-      {t:'paragraph', text:SAMPLE_PARA, size:10},
-      {t:'washi'}, {t:'washi'},
-      {t:'emoji', char:'⛵'}
-    ]},
-  { id:'b6-packed', label:'B6 · vertical single · Packed',
-    size:'B6', orientation:'vertical', mode:'single', density:'packed',
-    elements:[
-      {t:'photoP'}, {t:'photoP'}, {t:'sketchL'},
-      {t:'headline', text:'Market day'},
-      {t:'paragraph', text:SAMPLE_PARA, size:8},
-      {t:'washi'}, {t:'washi'},
-      {t:'emoji', char:'🍅'}, {t:'emoji', char:'🧺'}, {t:'emoji', char:'🌿'}
-    ]}
+const HEADLINE_SNIPPETS = [
+  'A most improbable day', 'Field notes', 'The time traveller returns',
+  'Beneath the waves', 'Ordinary miracles', 'Tea first, adventure later',
+  'Twenty thousand small things', 'Improbable weather ahead'
+];
+const PARA_SNIPPETS = [
+  'No one would have believed, in the last years of the nineteenth century, that human affairs were being watched keenly and closely.',
+  'The Time Traveller (for so it will be convenient to speak of him) was expounding a recondite matter to us, and his grey eyes shone and twinkled.',
+  'The year 1866 was signalised by a remarkable incident, a mysterious and puzzling phenomenon, which doubtless no one has yet forgotten.',
+  'The sea is everything. It covers seven tenths of the terrestrial globe. Its breath is pure and healthy.',
+  'The robot wrote its poem twice, then filed it under improbable weather. Nobody at the office minded at all.',
+  'We packed one towel too many, which the guidebook insists is impossible. The guidebook has been wrong before.',
+  'The alien filled out the arrival form in triplicate, asked for a receipt, and complimented our planet on its rain.',
+  'Tuesday was cancelled due to poetry. We drank coffee on the pier while the tide quietly reorganized the afternoon.'
+];
+const EMOJI_POOL = ['✨','🌿','☕','📷','🌊','🍂','🎨','🧵'];
+const randOf = arr => arr[Math.floor(Math.random()*arr.length)];
+
+const ELEMENT_ROWS = [
+  {t:'photoL',   label:'Landscape photo', hint:'10 × 7.5 cm', max:4},
+  {t:'photoP',   label:'Portrait photo',  hint:'7.5 × 10 cm', max:4},
+  {t:'sketchS',  label:'Small sketch',    hint:'4 × 4 cm — space to draw', max:4},
+  {t:'sketchL',  label:'Large sketch',    hint:'10 × 6 cm — space to draw', max:2},
+  {t:'washi',    label:'Washi tape',      hint:'1.5 cm wide strips', max:4},
+  {t:'headline', label:'Headline',        hint:'hand-lettered title', max:2},
+  {t:'paragraph',label:'Paragraph',       hint:'your text, size 8/10/12', max:2},
+  {t:'emoji',    label:'Emoji',           hint:'small symbols', max:6}
 ];
 
 /* =====================================================================
    9. UI WIRING
    ===================================================================== */
-const selEl = document.getElementById('scenario');
-const palEl = document.getElementById('palette');
-const gridEl = document.getElementById('grid');
-const warnEl = document.getElementById('warn');
+/* ---------- state ---------- */
+const state = {
+  size:'TN', mode:'single', orientation:'vertical', density:'balanced',
+  palette:'colourful',
+  counts:{photoL:1, photoP:0, sketchS:0, sketchL:0, washi:1, headline:1, paragraph:1, emoji:1},
+  photoSlots:{photoL:[], photoP:[]},   /* {source:'landscape'|'city'|'abstract', src:dataURL|null} */
+  headlines:[], paragraphs:[], emojis:[]
+};
+let sets = [null, null];   /* suggestion sets: [page1, page2] ('two' mode uses both) */
+let activePage = 0;
+let bestEffort = false;
 
-SCENARIOS.forEach((sc,i)=>{
-  const o = document.createElement('option');
-  o.value = i; o.textContent = sc.label;
-  selEl.appendChild(o);
-});
-for(const key of Object.keys(PALETTES)){
-  const o = document.createElement('option');
-  o.value = key; o.textContent = PALETTES[key].label;
-  palEl.appendChild(o);
+const $ = id => document.getElementById(id);
+const gridEl = $('grid'), warnEl = $('warn'), feasEl = $('feasWarn');
+
+function syncDetailArrays(){
+  for(const k of ['photoL','photoP']){
+    const arr = state.photoSlots[k];
+    while(arr.length < state.counts[k])
+      arr.push({source:PHOTO_MOTIFS[arr.length % PHOTO_MOTIFS.length], src:null});
+    arr.length = state.counts[k];
+  }
+  while(state.headlines.length < state.counts.headline) state.headlines.push({text:''});
+  state.headlines.length = state.counts.headline;
+  while(state.paragraphs.length < state.counts.paragraph) state.paragraphs.push({text:'', size:10});
+  state.paragraphs.length = state.counts.paragraph;
+  while(state.emojis.length < state.counts.emoji)
+    state.emojis.push({char:EMOJI_POOL[state.emojis.length % EMOJI_POOL.length]});
+  state.emojis.length = state.counts.emoji;
 }
-palEl.value = 'colourful';
 
-function run(){
-  const sc = SCENARIOS[selEl.value|0];
-  const palette = PALETTES[palEl.value] || PALETTES.colourful;
+/* ---------- input screen rendering ---------- */
+function renderElementRows(){
+  $('elementRows').innerHTML = ELEMENT_ROWS.map(r=>`
+    <div class="elrow">
+      <div class="lbl">${r.label}<small>${r.hint}</small></div>
+      <div class="stepper">
+        <button data-step="-1" data-t="${r.t}" ${state.counts[r.t]<=0?'disabled':''} aria-label="fewer">−</button>
+        <span class="val">${state.counts[r.t]}</span>
+        <button data-step="1" data-t="${r.t}" ${state.counts[r.t]>=r.max?'disabled':''} aria-label="more">+</button>
+      </div>
+    </div>`).join('');
+}
+
+function photoSlotHtml(k, label){
+  return state.photoSlots[k].map((slot,i)=>`
+    <div class="slot" data-k="${k}" data-i="${i}">
+      ${slot.src ? `<img src="${slot.src}" alt="">` : ''}
+      <select class="photo-src">
+        <option value="landscape" ${slot.source==='landscape'&&!slot.src?'selected':''}>${label} ${i+1}: Landscape placeholder</option>
+        <option value="city" ${slot.source==='city'&&!slot.src?'selected':''}>${label} ${i+1}: City placeholder</option>
+        <option value="abstract" ${slot.source==='abstract'&&!slot.src?'selected':''}>${label} ${i+1}: Abstract placeholder</option>
+        <option value="upload" ${slot.src?'selected':''}>${label} ${i+1}: ${slot.src?'Your photo ✓':'Upload photo…'}</option>
+      </select>
+      <input type="file" accept="image/*" hidden>
+    </div>`).join('');
+}
+
+function renderDetails(){
+  let html = '';
+  if(state.counts.photoL || state.counts.photoP){
+    html += `<div class="section"><h2>Photos</h2><div class="details">`
+          + photoSlotHtml('photoL','Landscape') + photoSlotHtml('photoP','Portrait')
+          + `</div></div>`;
+  }
+  if(state.counts.headline){
+    html += `<div class="section"><h2>Headline text</h2><div class="details">`
+      + state.headlines.map((h,i)=>`
+        <div class="slot">
+          <input type="text" class="headline-in" data-i="${i}" value="${esc(h.text)}"
+            placeholder="Headline ${i+1} — or tap Placeholder">
+          <button class="mini headline-ph" data-i="${i}">Placeholder</button>
+        </div>`).join('') + `</div></div>`;
+  }
+  if(state.counts.paragraph){
+    html += `<div class="section"><h2>Paragraph text</h2><div class="details">`
+      + state.paragraphs.map((p,i)=>`
+        <textarea class="para-in" data-i="${i}"
+          placeholder="Paragraph ${i+1} — write here, or tap Placeholder">${esc(p.text)}</textarea>
+        <div class="slot">
+          <select class="para-size" data-i="${i}">
+            <option value="8" ${p.size==8?'selected':''}>Size 8 (small)</option>
+            <option value="10" ${p.size==10?'selected':''}>Size 10</option>
+            <option value="12" ${p.size==12?'selected':''}>Size 12 (large)</option>
+          </select>
+          <button class="mini para-ph" data-i="${i}">Placeholder</button>
+        </div>`).join('') + `</div></div>`;
+  }
+  if(state.counts.emoji){
+    html += `<div class="section"><h2>Emojis</h2><div class="details"><div class="slot" style="flex-wrap:wrap">`
+      + state.emojis.map((e,i)=>`
+        <input type="text" class="emoji-in" data-i="${i}" value="${esc(e.char)}" maxlength="4">`).join('')
+      + `</div></div></div>`;
+  }
+  $('detailSections').innerHTML = html;
+}
+
+function renderChips(){
+  const html = Object.keys(PALETTES).map(k=>{
+    const p = PALETTES[k];
+    const dots = p.washi.slice(0,3).map(c=>`<i style="background:${c[0]}"></i>`).join('');
+    return `<button class="chip ${k===state.palette?'on':''}" data-pal="${k}">
+      <span class="dots">${dots}</span>${p.label}</button>`;
+  }).join('');
+  $('chipsInput').innerHTML = html;
+  $('chipsSuggest').innerHTML = html;
+}
+
+function hideFeas(){ feasEl.classList.remove('show'); }
+
+/* ---------- scenario from state ---------- */
+function buildScenario(){
+  const els = [];
+  for(const k of ['photoL','photoP']) for(const slot of state.photoSlots[k])
+    els.push({t:k, motif:slot.src?null:slot.source, src:slot.src});
+  for(let i=0;i<state.counts.sketchS;i++) els.push({t:'sketchS'});
+  for(let i=0;i<state.counts.sketchL;i++) els.push({t:'sketchL'});
+  let filled = false;
+  for(const h of state.headlines){
+    if(!h.text.trim()){ h.text = randOf(HEADLINE_SNIPPETS); filled = true; }
+    els.push({t:'headline', text:h.text.trim()});
+  }
+  for(const p of state.paragraphs){
+    if(!p.text.trim()){ p.text = randOf(PARA_SNIPPETS); filled = true; }
+    els.push({t:'paragraph', text:p.text.trim(), size:+p.size});
+  }
+  if(filled) renderDetails();   /* show the auto-inserted placeholder text */
+  for(let i=0;i<state.counts.washi;i++) els.push({t:'washi'});
+  for(const em of state.emojis) els.push({t:'emoji', char:em.char||'✨'});
+  return {size:state.size, orientation:state.orientation,
+          mode:state.mode==='spread'?'spread':'single',
+          density:state.density, elements:els};
+}
+
+/* ---------- generate flow ---------- */
+function showScreen(name){
+  $('screen-input').classList.toggle('hidden', name!=='input');
+  $('screen-suggest').classList.toggle('hidden', name!=='suggest');
+  window.scrollTo(0,0);
+}
+
+function onGenerate(force){
+  const sc = buildScenario();
+  if(!sc.elements.length){
+    feasEl.innerHTML = 'Add at least one element first.';
+    feasEl.classList.add('show');
+    return;
+  }
   const page = makePage(sc);
-  if(!feasibility(sc, page)){
-    warnEl.textContent = 'These elements won’t fit comfortably at this density — layouts below are best effort.';
+  bestEffort = !feasibility(sc, page);
+  if(bestEffort && !force){
+    feasEl.innerHTML = `These elements won’t fit comfortably on ${state.size} at ${state.density} density
+      — remove elements, increase density, or choose a larger page.
+      <div class="warn-actions">
+        <button id="feasProceed">Generate anyway</button>
+        <button id="feasAdjust" class="ghost">Adjust inputs</button>
+      </div>`;
+    feasEl.classList.add('show');
+    $('feasProceed').addEventListener('click', ()=>{ hideFeas(); onGenerate(true); });
+    $('feasAdjust').addEventListener('click', hideFeas);
+    return;
+  }
+  hideFeas();
+  sets = [null, null]; activePage = 0;
+  sets[0] = generateSuggestions(sc, PALETTES[state.palette]);
+  $('pageTabs').classList.toggle('hidden', state.mode!=='two');
+  $('pageTabs').querySelectorAll('button').forEach((b,i)=>b.classList.toggle('on', i===0));
+  showScreen('suggest');
+  renderGrid();
+}
+
+function renderGrid(){
+  const sugs = sets[activePage] || [];
+  const modeLabel = {single:'single page', spread:'spread', two:'two pages'}[state.mode];
+  $('summary').textContent =
+    `${state.size} · ${state.orientation} · ${modeLabel} · ${state.density} · ${PALETTES[state.palette].label}`;
+  if(bestEffort){
+    warnEl.textContent = 'Best effort: these elements don’t fit comfortably at this density.';
     warnEl.classList.add('show');
   } else warnEl.classList.remove('show');
-  const sugs = generateSuggestions(sc, palette);
   gridEl.innerHTML = sugs.map((s,i)=>`
     <div class="card">
-      <div class="thumb">${renderSuggestion(s, i)}</div>
+      <div class="thumb">${renderSuggestion(s, activePage*4+i)}</div>
       <div class="cap"><b>${s.arch}</b> · seed ${s.seed % 10000}</div>
     </div>`).join('');
 }
 
-selEl.addEventListener('change', run);
-palEl.addEventListener('change', run);
-document.getElementById('regen').addEventListener('click', run);
-run();
+/* palette switch re-colors current suggestions without re-placing them */
+function recolor(){
+  const pal = PALETTES[state.palette];
+  for(const set of sets){
+    if(!set) continue;
+    for(const sug of set){
+      const rng = mulberry32(sug.seed ^ 0x9e3779b9);
+      for(const el of sug.els){
+        if(el.kind==='photo' && !el.src) el.pal = pick(rng, pal.photo);
+        if(el.kind==='washi') el.colors = pick(rng, pal.washi);
+      }
+    }
+  }
+}
+
+/* ---------- event wiring ---------- */
+document.querySelectorAll('.seg').forEach(seg=>{
+  seg.addEventListener('click', e=>{
+    const b = e.target.closest('button');
+    if(!b) return;
+    seg.querySelectorAll('button').forEach(x=>x.classList.toggle('on', x===b));
+    state[seg.dataset.key] = b.dataset.v;
+    hideFeas();
+  });
+});
+
+$('elementRows').addEventListener('click', e=>{
+  const b = e.target.closest('button[data-step]');
+  if(!b) return;
+  const row = ELEMENT_ROWS.find(r=>r.t===b.dataset.t);
+  state.counts[b.dataset.t] = clamp(state.counts[b.dataset.t] + (+b.dataset.step), 0, row.max);
+  syncDetailArrays(); renderElementRows(); renderDetails(); hideFeas();
+});
+
+$('detailSections').addEventListener('input', e=>{
+  const t = e.target;
+  if(t.classList.contains('headline-in')) state.headlines[+t.dataset.i].text = t.value;
+  else if(t.classList.contains('para-in')) state.paragraphs[+t.dataset.i].text = t.value;
+  else if(t.classList.contains('emoji-in')) state.emojis[+t.dataset.i].char = t.value;
+});
+$('detailSections').addEventListener('change', e=>{
+  const t = e.target;
+  if(t.classList.contains('para-size')) state.paragraphs[+t.dataset.i].size = +t.value;
+  else if(t.classList.contains('photo-src')){
+    const slot = t.closest('.slot');
+    const s = state.photoSlots[slot.dataset.k][+slot.dataset.i];
+    if(t.value==='upload'){
+      slot.querySelector('input[type=file]').click();
+      if(!s.src) t.value = s.source;   /* revert until a file actually arrives */
+    } else { s.source = t.value; s.src = null; renderDetails(); }
+  } else if(t.type==='file' && t.files && t.files[0]){
+    const slot = t.closest('.slot');
+    const s = state.photoSlots[slot.dataset.k][+slot.dataset.i];
+    const reader = new FileReader();
+    reader.onload = ()=>{ s.src = reader.result; renderDetails(); };
+    reader.readAsDataURL(t.files[0]);
+  }
+});
+$('detailSections').addEventListener('click', e=>{
+  const b = e.target.closest('button.mini');
+  if(!b) return;
+  const i = +b.dataset.i;
+  if(b.classList.contains('headline-ph')){
+    state.headlines[i].text = randOf(HEADLINE_SNIPPETS);
+    b.closest('.slot').querySelector('.headline-in').value = state.headlines[i].text;
+  } else if(b.classList.contains('para-ph')){
+    state.paragraphs[i].text = randOf(PARA_SNIPPETS);
+    b.closest('.details').querySelectorAll('.para-in')[i].value = state.paragraphs[i].text;
+  }
+});
+
+document.addEventListener('click', e=>{
+  const chip = e.target.closest('.chip');
+  if(!chip) return;
+  state.palette = chip.dataset.pal;
+  renderChips();
+  if(!$('screen-suggest').classList.contains('hidden')){ recolor(); renderGrid(); }
+});
+
+$('pageTabs').addEventListener('click', e=>{
+  const b = e.target.closest('button[data-p]');
+  if(!b) return;
+  activePage = +b.dataset.p;
+  $('pageTabs').querySelectorAll('button').forEach(x=>x.classList.toggle('on', x===b));
+  if(!sets[activePage]) sets[activePage] = generateSuggestions(buildScenario(), PALETTES[state.palette]);
+  renderGrid();
+});
+
+$('generate').addEventListener('click', ()=>onGenerate(false));
+$('regen').addEventListener('click', ()=>{
+  sets[activePage] = generateSuggestions(buildScenario(), PALETTES[state.palette]);
+  renderGrid();
+});
+$('back').addEventListener('click', ()=>showScreen('input'));
+
+/* ---------- init ---------- */
+syncDetailArrays();
+renderElementRows();
+renderDetails();
+renderChips();
 </script>
 </body>
 </html>

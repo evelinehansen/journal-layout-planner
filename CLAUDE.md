@@ -28,6 +28,7 @@ A mobile-first web tool for planning journal/scrapbook page layouts. Full spec i
 
 ## Build order (PRD §13)
 
-1. Geometry model + archetype engine rendered as static thumbnails — get generation quality right first.
-2. Touch editor (largest effort — budget iteration here).
-3. Export (reuses the editor render path).
+1. Geometry model + archetype engine rendered as static thumbnails — get generation quality right first. ✅
+2. Input flow (added between PRD steps): input screen → feasibility check → suggestions. ✅
+3. Touch editor (largest effort — budget iteration here).
+4. Export (reuses the editor render path).
