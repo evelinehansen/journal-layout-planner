@@ -50,6 +50,7 @@
     padding:10px 12px; font-size:16px; color:var(--ink); font-family:inherit;
     appearance:none; -webkit-appearance:none;}
   .details textarea{min-height:64px; resize:vertical;}
+  .details textarea.entry-in{min-height:120px;}
   .slot img{width:44px; height:44px; object-fit:cover; border-radius:8px;
     border:1px solid var(--line); flex:none;}
   .slot .emoji-in{width:64px; flex:none; text-align:center; font-size:1.15rem;}
@@ -96,6 +97,13 @@
     font-weight:500; font-size:.82rem;}
   .sheet .sheet-title{grid-column:1/-1; font-size:.72rem; text-transform:uppercase;
     letter-spacing:.08em; color:var(--ink-soft); font-weight:600; padding:2px 4px 0;}
+  #textSheet textarea{grid-column:1/-1; min-height:110px; resize:vertical;
+    background:var(--bg); border:1px solid var(--line); border-radius:10px;
+    padding:10px 12px; font-size:16px; color:var(--ink); font-family:inherit;}
+  #textSheet select{grid-column:1/-1;}
+  #textSheetSize.hidden, #edEditText.hidden{display:none;}
+  #textSheet .ghost{background:var(--bg); color:var(--ink); border:1px solid var(--line);}
+  #textSave{background:var(--accent); color:#fff; border:none; font-weight:600;}
   .export-panel{display:flex; flex-direction:column; gap:8px; margin-top:10px;
     background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px;}
   .export-panel.hidden{display:none;}
@@ -194,8 +202,20 @@
   <div class="edbar hidden" id="selBar">
     <button class="ghost" id="edBackward">▼ Back</button>
     <button class="ghost" id="edForward">▲ Front</button>
+    <button class="ghost" id="edEditText">Edit</button>
     <div class="spacer"></div>
     <button class="ghost danger" id="edDelete">Delete</button>
+  </div>
+  <div class="sheet hidden" id="textSheet">
+    <div class="sheet-title">Edit text</div>
+    <textarea id="textSheetInput"></textarea>
+    <select id="textSheetSize">
+      <option value="8">Size 8 (small)</option>
+      <option value="10">Size 10</option>
+      <option value="12">Size 12 (large)</option>
+    </select>
+    <button class="ghost" id="textCancel">Cancel</button>
+    <button id="textSave">Save</button>
   </div>
   <div class="edbar" id="addBar">
     <button class="ghost wide" id="edAdd">+ Add element</button>
@@ -254,6 +274,7 @@ const EL = {
   washi:    {label:'Washi tape',      w:6.0,  h:WASHI_W, kind:'washi'},
   headline: {label:'Headline',        w:0,    h:1.5,  kind:'text'},
   paragraph:{label:'Paragraph',       w:0,    h:0,    kind:'text'},
+  entry:    {label:'Entry',           w:0,    h:0,    kind:'text'},
   emoji:    {label:'Emoji',           w:1.4,  h:1.4,  kind:'emoji'}
 };
 const PARA_LH = {8:0.35, 10:0.42, 12:0.50};  // line heights in cm (PRD 6, #7)
@@ -405,7 +426,7 @@ function setParagraphWidth(el, width){
 }
 /* rescale relative to type default, clamped to 60–130% (PRD 5.4) */
 function scaleEl(el, f){
-  if(el.t === 'paragraph' || el.kind === 'washi') return;
+  if(el.t === 'paragraph' || el.t === 'entry' || el.kind === 'washi') return;
   el.s = clamp(el.s * f, SCALE_MIN, SCALE_MAX);
   if(el.t === 'headline'){ headlineSize(el); return; }
   el.w = EL[el.t].w * el.s;
@@ -421,6 +442,8 @@ function prepareElements(sc, page, rng, palette){
                 placed:false, role:null, attach:null};
     if(e.t==='headline') headlineSize(el);
     if(e.t==='paragraph') setParagraphWidth(el, Math.min(8, u.w*0.65));
+    if(e.t==='entry') setParagraphWidth(el,
+      page.spine && page.spine.axis==='v' ? u.w/2 - GUTTER_HALF : u.w);
     if(d.kind==='photo'){
       el.motif = e.motif || pick(rng, PHOTO_MOTIFS);
       el.src = e.src || null;   /* user-uploaded photo as local data URL */
@@ -459,6 +482,12 @@ function feasibility(sc, page){
     else if(d.kind==='washi') minArea += 5*WASHI_W;
     else if(e.t==='headline') minArea += 6*1.5*SCALE_MIN;
     else if(e.t==='paragraph') minArea += 8;
+    else if(e.t==='entry'){
+      /* entries don't shrink: measure the real block at its zone width */
+      const tmp = {text:e.text||'', size:e.size||10};
+      setParagraphWidth(tmp, page.spine && page.spine.axis==='v' ? u.w/2-GUTTER_HALF : u.w);
+      minArea += tmp.w*tmp.h;
+    }
     else minArea += d.w*d.h;
   }
   const maxCover = Math.min(0.9, DENSITY[sc.density] + 0.15);
@@ -938,6 +967,7 @@ const ARCHETYPES = [
 function scenarioCounts(sc){
   let visuals=0, paragraphs=0, emojis=0, items=0;
   for(const e of sc.elements){
+    if(e.t==='entry') continue;   /* entries are placed before archetypes run */
     const k = EL[e.t].kind;
     if(k==='photo'||k==='sketch') visuals++;
     if(e.t==='paragraph') paragraphs++;
@@ -963,6 +993,40 @@ function pickArchetypes(sc, page, rng){
   return picked;
 }
 
+/* entries (long journal text) claim their zone before the archetype runs:
+   a full page side on spreads, a top/bottom band on single pages; the
+   archetype then lays out everything else in the remaining usable rect */
+function placeEntries(entries, page, rng){
+  if(!entries.length) return page;
+  const u = page.usable, gap = 0.5;
+  let zone, rest;
+  if(page.spine){
+    const g = page.gutter, first = rng() < 0.5;
+    const [a, b] = page.spine.axis === 'v'
+      ? [{x:u.x, y:u.y, w:g.x - u.x, h:u.h},
+         {x:g.x + g.w, y:u.y, w:u.x + u.w - g.x - g.w, h:u.h}]
+      : [{x:u.x, y:u.y, w:u.w, h:g.y - u.y},
+         {x:u.x, y:g.y + g.h, w:u.w, h:u.y + u.h - g.y - g.h}];
+    zone = first ? a : b; rest = first ? b : a;
+    for(const el of entries) setParagraphWidth(el, zone.w);
+  } else {
+    let total = -gap;
+    for(const el of entries){ setParagraphWidth(el, u.w); total += el.h + gap; }
+    const bandH = Math.min(total, u.h*0.75);
+    const top = rng() < 0.5;
+    zone = {x:u.x, y: top ? u.y : u.y + u.h - bandH, w:u.w, h:bandH};
+    rest = top ? {x:u.x, y:u.y + bandH + gap, w:u.w, h:u.h - bandH - gap}
+               : {x:u.x, y:u.y, w:u.w, h:u.h - bandH - gap};
+  }
+  let y = zone.y;
+  for(const el of entries){
+    el.x = zone.x; el.y = y; el.rot = 0; el.z = 30; el.placed = true;
+    y += el.h + gap;
+  }
+  if(rest.w < 2.5 || rest.h < 2.5) rest = u;   /* nothing left: share the page */
+  return {...page, usable: rest};
+}
+
 function generateSuggestions(sc, palette){
   const page = makePage(sc);
   const rngPick = mulberry32(newSeed());
@@ -972,7 +1036,8 @@ function generateSuggestions(sc, palette){
     const seed = newSeed();
     const rng = mulberry32(seed);
     const els = prepareElements(sc, page, rng, palette);
-    arch.place({sc, page, els, rng, counts});
+    const archPage = placeEntries(els.filter(e=>e.t==='entry'), page, rng);
+    arch.place({sc, page:archPage, els:els.filter(e=>e.t!=='entry'), rng, counts});
     /* validation pass: margins, overlaps already handled per archetype,
        then gutter rules, then anchors follow photos */
     for(const el of els){
@@ -986,7 +1051,7 @@ function generateSuggestions(sc, palette){
       const f = Math.min(1, page.usable.w/b.w, page.usable.h/b.h);
       if(f < 1){
         el.w *= f; el.h *= f;
-        if(el.t==='paragraph') setParagraphWidth(el, el.w);
+        if(el.t==='paragraph' || el.t==='entry') setParagraphWidth(el, el.w);
       }
       clampToUsable(el, page);
     }
@@ -1124,7 +1189,7 @@ function renderElInner(el, uid){
   if(el.kind==='sketch') return renderSketch(el);
   if(el.kind==='washi') return renderWashi(el, uid);
   if(el.t==='headline') return renderHeadline(el);
-  if(el.t==='paragraph') return renderParagraph(el);
+  if(el.t==='paragraph' || el.t==='entry') return renderParagraph(el);
   if(el.kind==='emoji') return renderEmoji(el);
   return '';
 }
@@ -1165,6 +1230,16 @@ const PARA_SNIPPETS = [
   'The alien filled out the arrival form in triplicate, asked for a receipt, and complimented our planet on its rain.',
   'Tuesday was cancelled due to poetry. We drank coffee on the pier while the tide quietly reorganized the afternoon.'
 ];
+/* long journal-entry placeholders (~200 words — roughly half a page),
+   original text in the same voice as the paragraph snippets */
+const ENTRY_SNIPPETS = [
+  'No one would have believed that a single Tuesday could hold so much, and yet here we are, and I have the pockets full of tickets to prove it. We left before the kettle had finished its argument with the stove, and the street outside was still rehearsing its morning: shutters half up, one industrious dog, a postman whistling something ambitious. By ten we had inspected the harbour, offended two swans, and bought a map from a man who cheerfully admitted he had never visited any of the places on it. We bought it anyway; it had confidence. Lunch was bread, the good cheese, and a view that did most of the talking. In the afternoon the rain arrived precisely on schedule, which impressed everybody, and we waited beneath a striped awning debating whether clouds hold opinions. They do, and Tuesday’s were strong ones. Afterwards the sun returned, apologetic, and dried the town so thoroughly that the whole harbour smelled of warm rope and possibility. We walked home the long way, because the long way had a bakery on it, and stood on the bridge counting boats until the counting stopped mattering. By evening my shoes held opinions too. A long day, generously overfilled, and I would not hand back a single hour of it.',
+  'The expedition set out at nine, or at what the captain of our small party insisted on calling nine. Provisions: two apples, a thermos of coffee strong enough to answer questions, one emergency chocolate bar with no clear definition of emergency, and a notebook already half full of weather. The path climbed through pines that smelled of resin and patience, and every bend promised a view; eventually one arrived, wide and blue and entirely worth the argument with the hill. We stood there for a long time saying nothing, which is the correct way to say some things. Lunch happened on a rock shaped almost exactly like a smaller rock, and the apples tasted the way apples only taste above a certain altitude. The descent was quicker and mostly voluntary. We found wild strawberries, which forgave everything, a stream with excellent conversation, and a signpost pointing confidently in four wrong directions; we thanked it and used the sun instead. The last kilometre was walked on legs that had opinions of their own, past farms where the evening was already being put away. Home by six, sunburnt in one improbable stripe, boots by the door like two tired dogs, and the emergency chocolate declared, retroactively, to have been an emergency. Already planning the sequel.',
+  'The sea kept its appointments all day, which is more than can be said for us. We walked the length of the beach twice, once for the walking and once for the pockets, which returned home heavier by four stones, one improbable shell, and a piece of glass the exact green of a bottle’s better memories. The tide went about its business with the calm of a professional. We drank coffee on the pier while a gull reviewed our pastries loudly and without mercy; it awarded them, in the end, one bite. In the afternoon the fog came in and turned the horizon off, so we turned ourselves inward, to the little museum with the whale bones and the attendant who knows everything and tells most of it, given the least encouragement. We gave it. Two hours later we emerged educated about lighthouses, shipwrecks, and the private life of herring, and the fog had finished whatever it was doing and put the sea back. Dinner was fish, obviously, eaten at the window table while the lighthouse cleared its throat every eight seconds. There is salt in my hair and sand in every pocket and one shoe, and I am not washing any of it out just yet.',
+  'The city had rearranged itself again overnight, the way cities do when nobody is watching. We took the wrong tram on purpose and it repaid us handsomely: a bakery with a queue of locals, which is the only review that matters; a bookshop with a resident cat of enormous administrative importance; and a square where three fountains competed politely for attention. Coffee number one happened early. Coffee number three happened, regrettably and wonderfully, after dinner. In between we walked eleven kilometres according to my feet and four according to the map, visited one museum until our eyes were completely full, and watched a wedding party spill out of a church like confetti in reverse. We got lost exactly once, in the good way, and were rescued by an old man who gave us directions to a place we had not asked about and was right to do so. It had the best view in town. Bought nothing sensible: one paper bag of plums, one postcard of a building we never found, one small ridiculous brass bell. Carried it all home anyway, the plums not surviving the journey. The best souvenirs, as usual, refuse to fit in luggage. My feet have resigned. The rest of me is already back on that square.',
+  'Today was deliberately small, and I would defend it to anyone. The rain settled in right after breakfast like a guest who knows where the cups are kept, so the plans folded themselves neatly away and the sofa put forward its candidacy, which was accepted unanimously. I read forty pages and argued with two of them. The tea went cold twice and was twice forgiven. Around three the sun made a brief inspection, found everything in order, and left again without comment. I sorted last month’s photographs into almost-order, which is the only order photographs respect, wrote one letter I have been owing since spring, and watched the neighbour’s dog conduct the traffic of leaves with total authority and no jurisdiction. The soup from yesterday was better today, as soup insists on being. In the evening the rain came back to finish its story, and I let it: lamps on early, socks of the thickest category, the good blanket promoted from the cupboard. Nothing happened, in the way that nothing sometimes very carefully does. The house smells of toast and rain. Some days are for spending and some are for keeping, and this one is going in the box with the ribbons.',
+  'The train left on time, which we took as a personal compliment. For six hours the window ran its long, unhurried film: fields being quietly competent, rivers practising their bends, small stations with names like minor characters who deserve their own books. We ate our sandwiches far too early, as tradition demands, and regretted nothing at noon and everything by two. A man across the aisle solved his crossword with the expression of a general accepting a surrender; a child two rows down narrated the entire country as it passed, and frankly her version was better. I wrote three postcards and posted none of them, which keeps my lifetime average intact. At the border of one province and the next the weather changed its mind completely, and the light turned the kind of gold that makes everyone in the carriage look briefly like a painting. Somewhere after the long tunnel the landscape changed its accent, the houses leaned differently, and we knew without checking that we were nearly there. Arrival: dusk, cold air with a new smell in it, platform lamps coming on in a row like a sentence being typed, and that specific joy of a suitcase wheel on unfamiliar cobblestones. Every journey should end with an appetite. Ours did.'
+];
 const EMOJI_POOL = ['✨','🌿','☕','📷','🌊','🍂','🎨','🧵'];
 const randOf = arr => arr[Math.floor(Math.random()*arr.length)];
 
@@ -1176,6 +1251,7 @@ const ELEMENT_ROWS = [
   {t:'washi',    label:'Washi tape',      hint:'1.5 cm wide strips', max:4},
   {t:'headline', label:'Headline',        hint:'hand-lettered title', max:2},
   {t:'paragraph',label:'Paragraph',       hint:'your text, size 8/10/12', max:2},
+  {t:'entry',    label:'Entry',           hint:'your long text, size 8/10/12', max:2},
   {t:'emoji',    label:'Emoji',           hint:'small symbols', max:6}
 ];
 
@@ -1186,9 +1262,9 @@ const ELEMENT_ROWS = [
 const state = {
   size:'TN', mode:'single', orientation:'vertical', density:'balanced',
   palette:'colourful',
-  counts:{photoL:1, photoP:0, sketchS:0, sketchL:0, washi:1, headline:1, paragraph:1, emoji:1},
+  counts:{photoL:1, photoP:0, sketchS:0, sketchL:0, washi:1, headline:1, paragraph:1, entry:0, emoji:1},
   photoSlots:{photoL:[], photoP:[]},   /* {source:'landscape'|'city'|'abstract', src:dataURL|null} */
-  headlines:[], paragraphs:[], emojis:[]
+  headlines:[], paragraphs:[], entries:[], emojis:[]
 };
 let sets = [null];   /* current suggestion set */
 let activePage = 0;
@@ -1208,6 +1284,8 @@ function syncDetailArrays(){
   state.headlines.length = state.counts.headline;
   while(state.paragraphs.length < state.counts.paragraph) state.paragraphs.push({text:'', size:10});
   state.paragraphs.length = state.counts.paragraph;
+  while(state.entries.length < state.counts.entry) state.entries.push({text:'', size:10});
+  state.entries.length = state.counts.entry;
   while(state.emojis.length < state.counts.emoji)
     state.emojis.push({char:EMOJI_POOL[state.emojis.length % EMOJI_POOL.length]});
   state.emojis.length = state.counts.emoji;
@@ -1272,6 +1350,20 @@ function renderDetails(){
           <button class="mini para-ph" data-i="${i}">Placeholder</button>
         </div>`).join('') + `</div></div>`;
   }
+  if(state.counts.entry){
+    html += `<div class="section"><h2>Entry text</h2><div class="details">`
+      + state.entries.map((p,i)=>`
+        <textarea class="entry-in" data-i="${i}"
+          placeholder="Entry ${i+1} — your long journal text, or tap Placeholder">${esc(p.text)}</textarea>
+        <div class="slot">
+          <select class="entry-size" data-i="${i}">
+            <option value="8" ${p.size==8?'selected':''}>Size 8 (small)</option>
+            <option value="10" ${p.size==10?'selected':''}>Size 10</option>
+            <option value="12" ${p.size==12?'selected':''}>Size 12 (large)</option>
+          </select>
+          <button class="mini entry-ph" data-i="${i}">Placeholder</button>
+        </div>`).join('') + `</div></div>`;
+  }
   if(state.counts.emoji){
     html += `<div class="section"><h2>Emojis</h2><div class="details"><div class="slot" style="flex-wrap:wrap">`
       + state.emojis.map((e,i)=>`
@@ -1309,6 +1401,10 @@ function buildScenario(){
   for(const p of state.paragraphs){
     if(!p.text.trim()){ p.text = randOf(PARA_SNIPPETS); filled = true; }
     els.push({t:'paragraph', text:p.text.trim(), size:+p.size});
+  }
+  for(const en of state.entries){
+    if(!en.text.trim()){ en.text = randOf(ENTRY_SNIPPETS); filled = true; }
+    els.push({t:'entry', text:en.text.trim(), size:+en.size});
   }
   if(filled) renderDetails();   /* show the auto-inserted placeholder text */
   for(let i=0;i<state.counts.washi;i++) els.push({t:'washi'});
@@ -1408,11 +1504,13 @@ $('detailSections').addEventListener('input', e=>{
   const t = e.target;
   if(t.classList.contains('headline-in')) state.headlines[+t.dataset.i].text = t.value;
   else if(t.classList.contains('para-in')) state.paragraphs[+t.dataset.i].text = t.value;
+  else if(t.classList.contains('entry-in')) state.entries[+t.dataset.i].text = t.value;
   else if(t.classList.contains('emoji-in')) state.emojis[+t.dataset.i].char = t.value;
 });
 $('detailSections').addEventListener('change', e=>{
   const t = e.target;
   if(t.classList.contains('para-size')) state.paragraphs[+t.dataset.i].size = +t.value;
+  else if(t.classList.contains('entry-size')) state.entries[+t.dataset.i].size = +t.value;
   else if(t.classList.contains('photo-src')){
     const slot = t.closest('.slot');
     const s = state.photoSlots[slot.dataset.k][+slot.dataset.i];
@@ -1435,6 +1533,9 @@ $('detailSections').addEventListener('click', e=>{
   } else if(b.classList.contains('para-ph')){
     state.paragraphs[i].text = randOf(PARA_SNIPPETS);
     b.closest('.details').querySelectorAll('.para-in')[i].value = state.paragraphs[i].text;
+  } else if(b.classList.contains('entry-ph')){
+    state.entries[i].text = randOf(ENTRY_SNIPPETS);
+    b.closest('.details').querySelectorAll('.entry-in')[i].value = state.entries[i].text;
   }
 });
 
@@ -1538,6 +1639,8 @@ function scheduleRerender(el){
 function selectEl(el){
   ed.sel = el;
   $('selBar').classList.toggle('hidden', !el || ed.locked);
+  $('edEditText').classList.toggle('hidden', !el || el.kind !== 'text');
+  $('textSheet').classList.add('hidden');
   renderSelection();
 }
 function setLocked(v){
@@ -1685,7 +1788,7 @@ edSvg.addEventListener('pointermove', e=>{
       el.w = clamp(2*Math.abs(lx)/S, 0.4, 80);
       el.h = clamp(2*Math.abs(ly)/S, 0.4, 80);
     }
-    else if(el.t === 'paragraph'){ setParagraphWidth(el, clamp(2*Math.abs(lx)/S, 2.5, 80)); }
+    else if(el.t === 'paragraph' || el.t === 'entry'){ setParagraphWidth(el, clamp(2*Math.abs(lx)/S, 2.5, 80)); }
     else {
       /* aspect locked (photos/sketches/emoji/headline), scaled about center */
       const s = clamp(Math.hypot(lx,ly)/g.d0, 0.1, 12);
@@ -1770,11 +1873,38 @@ $('edSnap').addEventListener('click', ()=>{
 $('edLock').addEventListener('click', ()=>setLocked(!ed.locked));
 $('edBack').addEventListener('click', ()=>showScreen('suggest'));
 
+/* ---- edit text of the selected headline/paragraph/entry ---- */
+$('edEditText').addEventListener('click', ()=>{
+  const el = ed.sel;
+  if(!el || el.kind !== 'text') return;
+  $('textSheetInput').value = el.text;
+  $('textSheetSize').classList.toggle('hidden', el.t === 'headline');
+  $('textSheetSize').value = String(el.size || 10);
+  $('addSheet').classList.add('hidden');
+  $('textSheet').classList.remove('hidden');
+  $('textSheetInput').focus();
+});
+$('textCancel').addEventListener('click', ()=>$('textSheet').classList.add('hidden'));
+$('textSave').addEventListener('click', ()=>{
+  const el = ed.sel;
+  $('textSheet').classList.add('hidden');
+  if(!el || el.kind !== 'text') return;
+  const txt = $('textSheetInput').value.replace(/\s+/g,' ').trim();
+  if(!txt || (txt === el.text && (el.t==='headline' || +$('textSheetSize').value === el.size))) return;
+  pushUndoNow();
+  el.text = txt;
+  if(el.t === 'headline') headlineSize(el);
+  else { el.size = +$('textSheetSize').value; setParagraphWidth(el, el.w); }
+  renderEditor();
+  selectEl(el);
+});
+
 /* ---- add elements ---- */
 const ADD_TYPES = [
   ['photoL','Landscape photo'], ['photoP','Portrait photo'],
   ['sketchS','Small sketch'], ['sketchL','Large sketch'],
-  ['headline','Headline'], ['paragraph','Paragraph'], ['emoji','Emoji ✨'],
+  ['headline','Headline'], ['paragraph','Paragraph'], ['entry','Entry'],
+  ['emoji','Emoji ✨'],
   ['washi-border','Washi · border'], ['washi-anchor','Washi · photo anchor'],
   ['washi-divider','Washi · divider'], ['washi-diagonal','Washi · diagonal']
 ];
@@ -1816,7 +1946,13 @@ function addElement(type){
     if(d.kind === 'photo'){ el.motif = randOf(PHOTO_MOTIFS); el.pal = randOf(pal.photo); el.src = null; }
     if(type === 'headline'){ el.text = randOf(HEADLINE_SNIPPETS); headlineSize(el); }
     if(type === 'paragraph'){ el.text = randOf(PARA_SNIPPETS); setParagraphWidth(el, ed.page.usable.w*0.5); }
+    if(type === 'entry'){
+      el.text = randOf(ENTRY_SNIPPETS);
+      setParagraphWidth(el, ed.page.spine && ed.page.spine.axis==='v'
+        ? ed.page.usable.w/2 - GUTTER_HALF : ed.page.usable.w*0.9);
+    }
     placeCenter(el, vc.x, vc.y);
+    if(type === 'entry') clampToUsable(el, ed.page);
     ed.els.push(el);
   }
   $('addSheet').classList.add('hidden');
