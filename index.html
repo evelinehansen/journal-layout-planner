@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#FAFAF7">
-<title>Journal Layout Planner</title>
+<title>LayoutPlanner</title>
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
 <style>
@@ -30,8 +30,8 @@
     line-height:1.5; -webkit-font-smoothing:antialiased;}
   body{padding:16px 14px calc(24px + env(safe-area-inset-bottom));
     max-width:560px; margin:0 auto;}
-  header h1{font-family:var(--serif); font-size:1.45rem; font-weight:600;
-    letter-spacing:.01em;}
+  .app-title{font-weight:800; font-size:1.5rem; letter-spacing:-0.01em;}
+  .app-title-accent{color:var(--sage);}
   header p{font-size:.8rem; color:var(--ink-soft); margin-top:2px;}
   .screen.hidden{display:none;}
   .section{margin-top:18px;}
@@ -175,7 +175,7 @@
 </head>
 <body>
 <header>
-  <h1>Journal Layout Planner</h1>
+  <h1 class="app-title">Layout<span class="app-title-accent">Planner</span></h1>
   <p>Pick your page and elements, get four layout ideas</p>
 </header>
 
